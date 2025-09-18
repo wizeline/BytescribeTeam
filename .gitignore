@@ -40,8 +40,13 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# bytescribe-app
 node_modules/
-
 .next/
 out/
 build/
+
+#elevenlabs-poc
+.venv/
+__pycache__/
+*.pyc
