@@ -24,11 +24,37 @@ export default function UrlBox(props: BoxProps) {
     const { urlPath } = data;
     const payload = encodeURI(urlPath);
 
+    const apiUrl = process.env.NEXT_PUBLIC_LAMBDA_API;
+
+    if (!apiUrl) {
+      alert("Lambda API URL not configured. Set NEXT_PUBLIC_LAMBDA_API.");
+      return;
+    }
+
     setLoading(true);
-    setTimeout(() => {
-      alert(`User input: ${payload}`);
-      setLoading(false);
-    }, 1000);
+
+    fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ url: payload }),
+    })
+      .then(async (res) => {
+        const text = await res.text();
+        if (!res.ok) {
+          throw new Error(text || `Request failed with ${res.status}`);
+        }
+        return text;
+      })
+      .then((responseText) => {
+        alert(`Success: ${responseText}`);
+      })
+      .catch((err) => {
+        console.error(err);
+        alert(`Error sending URL: ${err.message || err}`);
+      })
+      .finally(() => setLoading(false));
   };
 
   return (
