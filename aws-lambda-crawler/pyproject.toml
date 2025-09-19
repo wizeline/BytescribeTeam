@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "aws-lambda-crawler"
+version = "0.1.0"
+description = "Simple AWS Lambda HTML crawler"
+authors = ["Your Name <you@example.com>"]
+packages = [{ include = "crawler" }]
+
+[tool.poetry.dependencies]
+python = ">=3.9,<4.0"
+requests = "^2.31.0"
+beautifulsoup4 = "^4.12.2"
+boto3 = "^1.40.33"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

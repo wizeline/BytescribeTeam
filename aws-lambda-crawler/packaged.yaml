@@ -1,0 +1,23 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: aws-lambda-crawler - simple HTML crawler
+Resources:
+  CrawlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: aws-lambda-crawler
+      Handler: handler.lambda_handler
+      Runtime: python3.10
+      Timeout: 30
+      MemorySize: 128
+      Description: Minimal HTML crawler
+      Policies: AWSLambdaBasicExecutionRole
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /crawl
+            Method: post
+      CodeUri: s3://ddh-aws-lambda-crawler/6caf2a295ff7a4523e1ef07d6f3efea6
+    Metadata:
+      SamResourceId: CrawlerFunction

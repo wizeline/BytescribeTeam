@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lambda Tester</title>
+  </head>
+  <body>
+    <h1>Test Lambda Handler</h1>
+    <form id="invokeForm" method="post" action="/invoke">
+      <label>URL (simple test):</label>
+      <input
+        type="text"
+        name="url"
+        placeholder="https://example.com"
+        style="width: 400px"
+      />
+      <br /><br />
+      <label>Raw JSON payload (optional):</label>
+      <br />
+      <textarea
+        name="payload"
+        rows="6"
+        cols="80"
+        placeholder='{"url": "https://example.com"}'
+      ></textarea>
+      <br />
+      <button type="submit">Invoke</button>
+    </form>
+
+    <h2>Result</h2>
+    <pre id="result">No result yet.</pre>
+
+    <script>
+      const form = document.getElementById('invokeForm');
+      const result = document.getElementById('result');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(form);
+        const resp = await fetch('/invoke', { method: 'POST', body: formData });
+        const data = await resp.json();
+        result.textContent = JSON.stringify(data, null, 2);
+      });
+    </script>
+  </body>
+</html>

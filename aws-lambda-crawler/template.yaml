@@ -1,0 +1,82 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: aws-lambda-crawler - simple HTML crawler
+
+Parameters:
+  ConfluenceSecretName:
+    Type: String
+    Description: 'Secrets Manager secret name or ARN with Confluence credentials'
+
+Resources:
+  CrawlerExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [lambda.amazonaws.com]
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: CrawlerSecretsAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref ConfluenceSecretName
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  CrawlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: aws-lambda-crawler
+      Handler: handler.lambda_handler
+      Runtime: python3.10
+      Timeout: 30
+      MemorySize: 128
+      Description: Minimal HTML crawler
+      Role: !GetAtt CrawlerExecutionRole.Arn
+      Policies:
+        - AWSLambdaBasicExecutionRole
+      Environment:
+        Variables:
+          # Name (or ARN) of the secret in AWS Secrets Manager containing Confluence credentials
+          CONFLUENCE_SECRET_NAME: !Ref ConfluenceSecretName
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /crawl
+            Method: post
+            RestApiId: !Ref CrawlerApi
+
+  CrawlerApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Cors:
+        AllowMethods: "'POST,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin: "'http://localhost:3000'"
+
+Outputs:
+  ConfluenceSecretNameOutput:
+    Description: 'Provided Confluence secret name'
+    Value: !Ref ConfluenceSecretName
+
+  CrawlerExecutionRoleArn:
+    Description: 'ARN of the Lambda execution role'
+    Value: !GetAtt CrawlerExecutionRole.Arn
+
+  CrawlerApiInvokeUrl:
+    Description: 'Invoke URL for the crawler API'
+    Value: !Sub 'https://${CrawlerApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/crawl'
