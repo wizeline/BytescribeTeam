@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "aws-lambda-crawler-webapp"
+version = "0.1.0"
+description = "Small Flask webapp to test the lambda handler"
+authors = ["you <you@example.com>"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.9"
+Flask = "^2.0"
+requests = "^2.0"
+beautifulsoup4 = "^4.0"
+
+[tool.poetry.scripts]
+run-webapp = "webapp.app:main"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
