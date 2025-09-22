@@ -78,5 +78,5 @@ Initially, we will offer a freemium model. A limited number of free video genera
       Pricing will be based on usage, likely a "per video" cost with volume discounts. A premium tier could offer unlimited videos and advanced features.
 
 <h4>Possible Problems:</h4>
-      The main challenges will be the accuracy of the AI summarization for highly technical content, and the cost of AI model usage. 
+      The main challenges will be the accuracy of the AI summarization for highly technical content, and the cost of AI model usage.<br />
 	  We must also manage the performance of video generation to ensure a good user experience.
