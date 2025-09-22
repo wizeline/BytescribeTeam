@@ -1,7 +1,8 @@
 import json
 
-from crawler.fetcher import fetch_html
+from crawler.fetcher import fetch_html, fetch_all_content
 from crawler.parser import parse_html
+import os
 
 
 def _cors_headers():
@@ -49,8 +50,32 @@ def lambda_handler(event, context=None):
     if not url:
         return _proxy_response(400, {"error": "missing 'url' in event"})
 
+    # Support asking for full content by providing `full`, `full_content` or `full_text`
+    # flag in event or JSON body
+    want_full = False
+    if isinstance(event, dict):
+        # API Gateway: body may contain JSON
+        if "body" in event and event["body"]:
+            try:
+                body = json.loads(event["body"]) if isinstance(event["body"], str) else event["body"]
+                want_full = bool(
+                    body.get("full") or body.get("full_content") or body.get("full_text")
+                )
+            except Exception:
+                pass
+        else:
+            want_full = bool(
+                event.get("full") or event.get("full_content") or event.get("full_text")
+            )
+
     try:
-        html = fetch_html(url)
+        if want_full:
+            fetched = fetch_all_content(url)
+            if fetched is None:
+                return _proxy_response(502, {"error": "failed to fetch url (full)", "url": url})
+            html = fetched.get("html")
+        else:
+            html = fetch_html(url)
     except Exception as exc:
         return _proxy_response(502, {"error": "failed to fetch url", "url": url, "detail": str(exc)})
 
@@ -58,8 +83,23 @@ def lambda_handler(event, context=None):
         return _proxy_response(502, {"error": "failed to fetch url", "url": url})
 
     try:
-        parsed = parse_html(html)
+        # Allow overriding snippet length via environment variable
+        parse_max = None
+        try:
+            env_val = os.getenv("PARSE_SNIPPET_MAX")
+            parse_max = int(env_val) if env_val is not None else None
+        except Exception:
+            parse_max = None
+
+        parsed = parse_html(html, max_snippet_chars=parse_max, full_text=want_full)
     except Exception as exc:
         return _proxy_response(500, {"error": "failed to parse html", "detail": str(exc)})
 
-    return _proxy_response(200, {"url": url, **parsed})
+    response_payload = {"url": url, **parsed}
+    if want_full and isinstance(fetched, dict):
+        resources = fetched.get("resources", {})
+        failed = fetched.get("failed", [])
+        response_payload["resource_count"] = len(resources)
+        response_payload["failed_resources"] = failed
+
+    return _proxy_response(200, response_payload)

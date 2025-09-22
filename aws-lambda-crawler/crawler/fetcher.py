@@ -10,6 +10,9 @@ from crawler.secrets import get_confluence_credentials
 import requests
 from requests.exceptions import RequestException
 from requests.auth import HTTPBasicAuth
+from bs4 import BeautifulSoup
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, Tuple, List
 
 
 class RobotsChecker:
@@ -145,4 +148,73 @@ def fetch_html(url: str, timeout: int = 10, max_retries: int = 2, backoff: float
             if attempt > max_retries:
                 return None
             time.sleep(backoff * attempt)
+
+
+def fetch_all_content(url: str, timeout: int = 10, max_retries: int = 2) -> Optional[Dict[str, object]]:
+    """Fetch the HTML and attempt to download common external resources.
+
+    Returns dict with keys:
+      - "html": str HTML text
+      - "resources": dict mapping absolute URL -> bytes
+      - "failed": list of resource URLs that failed to download
+
+    Returns None if the main HTML could not be fetched.
+    """
+    html = fetch_html(url, timeout=timeout, max_retries=max_retries)
+    if html is None:
+        return None
+
+    soup = BeautifulSoup(html, "html.parser")
+    parsed_page = urllib.parse.urlparse(url)
+    base = f"{parsed_page.scheme}://{parsed_page.netloc}"
+
+    # Gather resource references
+    resource_urls: List[str] = []
+    for img in soup.find_all("img"):
+        src = img.get("src")
+        if src:
+            resource_urls.append(src)
+    for link in soup.find_all("link", rel=lambda x: x and "stylesheet" in x):
+        href = link.get("href")
+        if href:
+            resource_urls.append(href)
+    for script in soup.find_all("script"):
+        src = script.get("src")
+        if src:
+            resource_urls.append(src)
+
+    # Resolve and dedupe
+    resolved: List[str] = []
+    seen = set()
+    for r in resource_urls:
+        abs_url = urllib.parse.urljoin(base, r)
+        if abs_url not in seen:
+            seen.add(abs_url)
+            resolved.append(abs_url)
+
+    resources: Dict[str, bytes] = {}
+    failed: List[str] = []
+
+    def _download(res_url: str) -> Tuple[str, Optional[bytes]]:
+        try:
+            resp = requests.get(res_url, headers={"User-Agent": "aws-lambda-crawler/1.0"}, timeout=timeout)
+            resp.raise_for_status()
+            return res_url, resp.content
+        except Exception:
+            return res_url, None
+
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        futures = {ex.submit(_download, u): u for u in resolved}
+        for fut in as_completed(futures):
+            u = futures[fut]
+            try:
+                url_got, data = fut.result()
+                if data is None:
+                    failed.append(url_got)
+                else:
+                    resources[url_got] = data
+            except Exception:
+                failed.append(u)
+
+    return {"html": html, "resources": resources, "failed": failed}
 

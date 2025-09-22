@@ -1,14 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 
-const API_URL = import.meta.env.VITE_API_URL || 'REPLACE_WITH_API_URL';
+const API_URL = import.meta.env.VITE_API_URL || "REPLACE_WITH_API_URL";
 
 export default function App() {
   const [url, setUrl] = useState(
-    'https://wizeline.atlassian.net/wiki/spaces/VS/pages/4589223950/Technical+Overview',
+    "https://wizeline.atlassian.net/wiki/spaces/VS/pages/4589223950/Technical+Overview",
   );
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [full, setFull] = useState(true);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -17,9 +18,9 @@ export default function App() {
     setResult(null);
     try {
       const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, full }),
       });
       if (!res.ok) {
         const t = await res.text();
@@ -35,7 +36,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ padding: 20, fontFamily: 'sans-serif' }}>
+    <div style={{ padding: 20, fontFamily: "sans-serif" }}>
       <h2>Lambda Crawler Test</h2>
       <form onSubmit={handleSubmit} style={{ marginBottom: 12 }}>
         <input
@@ -44,12 +45,20 @@ export default function App() {
           placeholder="https://example.com"
           style={{ width: 400, marginRight: 8 }}
         />
+        <label style={{ marginRight: 8, marginLeft: 8 }}>
+          <input
+            type="checkbox"
+            checked={full}
+            onChange={(e) => setFull(e.target.checked)}
+          />{" "}
+          Full content
+        </label>
         <button type="submit" disabled={loading || !url}>
-          {loading ? 'Crawling…' : 'Crawl'}
+          {loading ? "Crawling…" : "Crawl"}
         </button>
       </form>
 
-      {error && <div style={{ color: 'red' }}>Error: {error}</div>}
+      {error && <div style={{ color: "red" }}>Error: {error}</div>}
 
       {result && (
         <div>
@@ -63,10 +72,28 @@ export default function App() {
           <div>
             <strong>Snippet:</strong> {result.text_snippet}
           </div>
+          {typeof result.resource_count !== "undefined" && (
+            <div>
+              <strong>Resources downloaded:</strong> {result.resource_count}
+            </div>
+          )}
+          {Array.isArray(result.failed_resources) &&
+            result.failed_resources.length > 0 && (
+              <div>
+                <strong>Failed resources:</strong>
+                <ul>
+                  {result.failed_resources.map((r) => (
+                    <li key={r} style={{ fontSize: 12 }}>
+                      {r}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
         </div>
       )}
 
-      <div style={{ marginTop: 18, fontSize: 12, color: '#666' }}>
+      <div style={{ marginTop: 18, fontSize: 12, color: "#666" }}>
         <div>
           API: <code>{API_URL}</code>
         </div>
