@@ -67,13 +67,16 @@ We will use an S3 bucket as a central repository to store our final video files.
 
 Initially, we will offer a freemium model. A limited number of free video generations per month to attract users, with a tiered subscription plan for higher usage, advanced features, and team-based accounts.
 
-<h2>Nice to Have (Roadmap, Pricing, Problems)</h2>
+<h2>Addtional Information</h2>
 
-<h4>* Roadmap:</h4>
-			Phase 1 (MVP): Launch the core functionality as described above.<br />
-	 		Phase 2: Add support for different content types (e.g., images, tables, code blocks) in the video output.<br />
-			Phase 3: Develop a Confluence Add-on for seamless integration.
-<h4>* Pricing:</h4>
+<h4>Roadmap:</h4>
+			Phase 1 (MVP): Build a functional MVP that can turn a Confluence page into a video summary.<br />
+	 		Phase 2: Improve the quality and efficiency of the video output and begin to automate content enrichment.<br />
+			Phase 3: Achieve widespread adoption by integrating into the user's workflow and expanding our feature set.
+
+<h4>Pricing:</h4>
       Pricing will be based on usage, likely a "per video" cost with volume discounts. A premium tier could offer unlimited videos and advanced features.
-<h4>* Possible Problems:</h4>
-      The main challenges will be the accuracy of the AI summarization for highly technical content, and the cost of AI model usage. We must also manage the performance of video generation to ensure a good user experience.
+
+<h4>Possible Problems:</h4>
+      The main challenges will be the accuracy of the AI summarization for highly technical content, and the cost of AI model usage. 
+	  We must also manage the performance of video generation to ensure a good user experience.
