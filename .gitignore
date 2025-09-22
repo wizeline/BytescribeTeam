@@ -41,8 +41,16 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# bytescribe-app
 node_modules/
-
 .next/
 out/
-build/
+bytescribe-app/build/
+
+#elevenlabs-poc
+.venv/
+__pycache__/
+*.pyc
+*.mp3
+
+lambda_package/

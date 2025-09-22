@@ -7,6 +7,7 @@ import {
   InputLabel,
   TextField,
 } from "@mui/material";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 
@@ -19,6 +20,7 @@ export default function UrlBox(props: BoxProps) {
   });
 
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
   const onSubmit = (data: { urlPath: string }) => {
     const { urlPath } = data;
