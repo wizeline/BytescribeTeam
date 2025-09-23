@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 from handler import lambda_handler
 
@@ -9,6 +10,8 @@ def main():
     parser.add_argument("-f", "--full", action="store_true", help="Request full content (download page resources)")
     parser.add_argument("--full-text", action="store_true", help="Return the full extracted text instead of a snippet")
     parser.add_argument("--snippet-max", type=int, help="Override PARSE_SNIPPET_MAX for this run")
+    parser.add_argument("--action", help="Action to perform (e.g. index)")
+    parser.add_argument("--output", help="Write the handler response body to this file (JSON)")
     args = parser.parse_args()
 
     if args.snippet_max is not None:
@@ -19,9 +22,32 @@ def main():
         event["full"] = True
     if args.full_text:
         event["full_text"] = True
+    if args.action:
+        event["action"] = args.action
 
     result = lambda_handler(event)
-    print(result)
+    # Try to parse returned body JSON for nicer output and optional file write
+    body = None
+    try:
+        body = json.loads(result.get("body") or "null")
+    except Exception:
+        body = result.get("body")
+
+    if args.output:
+        try:
+            with open(args.output, "w", encoding="utf-8") as f:
+                import json as _json
+
+                _json.dump({"statusCode": result.get("statusCode"), "body": body}, f, ensure_ascii=False, indent=2)
+            print(f"Wrote output to {args.output}")
+        except Exception as exc:
+            print(f"Failed to write output to {args.output}: {exc}")
+
+    # Print a compact summary
+    print("status:", result.get("statusCode"))
+    print("body (first 1000 chars):")
+    s = result.get("body") or ""
+    print(s[:1000])
 
 
 if __name__ == "__main__":
