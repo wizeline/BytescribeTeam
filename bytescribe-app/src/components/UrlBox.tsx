@@ -50,13 +50,15 @@ export default function UrlBox(props: BoxProps) {
         return text;
       })
       .then((responseText) => {
-        alert(`Success: ${responseText}`);
+        router.push("editing");
       })
       .catch((err) => {
         console.error(err);
         alert(`Error sending URL: ${err.message || err}`);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+      });
   };
 
   return (
@@ -84,7 +86,7 @@ export default function UrlBox(props: BoxProps) {
                     fieldState.error &&
                     (fieldState.error.message || "Failed to validate.")
                   }
-                  sx={{ height: "3.5rem" }}
+                  sx={{ height: "3.5rem", boxShadow: 2, borderRadius: 1 }}
                 ></TextField>
               </>
             )}

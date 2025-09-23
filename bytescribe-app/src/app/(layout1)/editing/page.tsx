@@ -1,12 +1,10 @@
 import HighlightsTable from "@/components/HighlightsTable";
-import { Container, Paper } from "@mui/material";
+import { Container } from "@mui/material";
 
 export default function StartPage() {
   return (
     <Container maxWidth="xl">
-      <Paper>
-        <HighlightsTable />
-      </Paper>
+      <HighlightsTable />
     </Container>
   );
 }

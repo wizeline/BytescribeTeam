@@ -9,7 +9,7 @@ export default function StartPage() {
         gap={2}
         justifyContent={"center"}
         alignItems={"center"}
-        minHeight={"100vh"}
+        minHeight={"calc(100vh - 338px)"}
       />
     </Container>
   );
