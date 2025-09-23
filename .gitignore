@@ -54,3 +54,12 @@ __pycache__/
 *.mp3
 
 lambda_package/
+
+build/
+
+# Python
+__pycache__/
+
+.vscode/settings.json
+
+**/.venv*/
