@@ -2,6 +2,7 @@ import json
 
 from crawler.fetcher import fetch_html, fetch_all_content
 from crawler.parser import parse_html
+from crawler.processor import create_document
 import os
 
 
@@ -90,6 +91,35 @@ def lambda_handler(event, context=None):
             parse_max = int(env_val) if env_val is not None else None
         except Exception:
             parse_max = None
+
+        # Special action: index -> return structured document ready for embedding/indexing
+        if isinstance(event, dict):
+            action = None
+            # check body JSON first
+            if "body" in event and event["body"]:
+                try:
+                    body = json.loads(event["body"]) if isinstance(event["body"], str) else event["body"]
+                    action = body.get("action")
+                except Exception:
+                    action = None
+            else:
+                action = event.get("action")
+
+            if action == "index":
+                # create structured document (includes chunks)
+                try:
+                    document = create_document(url, html, chunk_size=1000, overlap=200, parse_snippet_max=parse_max)
+                except Exception as exc:
+                    return _proxy_response(500, {"error": "failed to create document", "detail": str(exc)})
+
+                # If full fetch included resources, attach counts
+                if want_full and isinstance(fetched, dict):
+                    resources = fetched.get("resources", {})
+                    failed = fetched.get("failed", [])
+                    document["resource_count"] = len(resources)
+                    document["failed_resources"] = failed
+
+                return _proxy_response(200, {"url": url, "document": document})
 
         parsed = parse_html(html, max_snippet_chars=parse_max, full_text=want_full)
     except Exception as exc:
