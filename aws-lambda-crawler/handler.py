@@ -131,7 +131,18 @@ def lambda_handler(event, context=None):
         except Exception:
             parse_max = None
 
-        parsed = parse_html(html, max_snippet_chars=parse_max, full_text=want_full)
+        # Extract resources unless explicitly disabled
+        extract_resources = True
+        if isinstance(body_dict, dict):
+            extract_resources = body_dict.get("extract_resources", True)
+
+        parsed = parse_html(
+            html, 
+            max_snippet_chars=parse_max, 
+            full_text=want_full,
+            extract_resources=extract_resources,
+            base_url=url
+        )
     except Exception as exc:
         return _proxy_response(500, {"error": "failed to parse html", "detail": str(exc)})
 
