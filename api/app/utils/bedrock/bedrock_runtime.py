@@ -10,10 +10,19 @@ import os
 
 from botocore.exceptions import ClientError
 from app.constants import (
-    BEDROCK_MODEL_AWS_TITANT
+    BEDROCK_MODEL_AWS_TITANT,
+    BEDROCK_MODEL_ANTHROPIC_CLAUDE35
 )
 from app.core.config import settings
 
+_DEFAULT_PROMPT = """
+    Summarize the following text into exactly 3 main bullet points:
+    - Each bullet point must be no longer than 100 words.
+    - Focus only on the core ideas, avoid minor details or repetition.
+    - Return the output as plain text bullets.
+
+    Text:\n
+"""
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -43,17 +52,17 @@ def list_foundation_models():
 
 
 def summarize_page(
-    prompt="Summarize the benefits of Amazon Bedrock in 3 bullet points.",
+    content_page="",
     text_config={},
     model_id=BEDROCK_MODEL_AWS_TITANT
 ):
     _TextGenerationConfig = {
-        "maxTokenCount": 1024,
+        "maxTokenCount": 8192,
         "temperature": 0.7
     }
 
     body = json.dumps({
-        "inputText": prompt,
+        "inputText": _DEFAULT_PROMPT + content_page,
         "textGenerationConfig": {
             **_TextGenerationConfig,
             **text_config
@@ -67,8 +76,8 @@ def summarize_page(
             contentType="application/json",
             accept="application/json"
         )
-    except ClientError:
-        logger.error("Couldn't list foundation models.")
+    except ClientError as ex:
+        logger.error(f"Couldn't invoke a model: {str(ex)}")
         raise
 
     output = json.loads(resp["body"].read())
