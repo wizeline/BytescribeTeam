@@ -3,6 +3,7 @@ import json
 from crawler.fetcher import fetch_html, fetch_all_content
 from crawler.parser import parse_html
 from crawler.processor import create_document
+from crawler.summarizer import summarize_document, summarize_text
 import os
 
 
@@ -120,6 +121,68 @@ def lambda_handler(event, context=None):
                     document["failed_resources"] = failed
 
                 return _proxy_response(200, {"url": url, "document": document})
+
+            if action == "summarize":
+                # Extract summarization parameters from body
+                summary_length = "medium"  # default
+                focus = None
+                model_id = "anthropic.claude-3-haiku-20240307-v1:0"  # default
+                
+                if "body" in event and event["body"]:
+                    try:
+                        body = json.loads(event["body"]) if isinstance(event["body"], str) else event["body"]
+                        summary_length = body.get("summary_length", summary_length)
+                        focus = body.get("focus")
+                        model_id = body.get("model_id", model_id)
+                    except Exception:
+                        pass
+                else:
+                    summary_length = event.get("summary_length", summary_length)
+                    focus = event.get("focus")
+                    model_id = event.get("model_id", model_id)
+                
+                # Create document first to get structured text
+                try:
+                    document = create_document(url, html, chunk_size=1000, overlap=200, parse_snippet_max=parse_max)
+                except Exception as exc:
+                    return _proxy_response(500, {"error": "failed to create document", "detail": str(exc)})
+
+                # Summarize the document
+                try:
+                    summarized_doc = summarize_document(
+                        document=document,
+                        model_id=model_id,
+                        summary_length=summary_length,
+                        focus=focus
+                    )
+                except Exception as exc:
+                    return _proxy_response(500, {"error": "failed to summarize document", "detail": str(exc)})
+
+                # Check for summarization errors
+                summary_meta = summarized_doc.get("summary_metadata", {})
+                if summary_meta.get("error"):
+                    return _proxy_response(502, {
+                        "error": "summarization failed",
+                        "detail": summary_meta["error"],
+                        "url": url
+                    })
+
+                # Return summary response
+                response_data = {
+                    "url": url,
+                    "title": summarized_doc.get("title", ""),
+                    "summary": summarized_doc.get("summary", ""),
+                    "summary_metadata": summary_meta
+                }
+
+                # If full fetch included resources, attach counts
+                if want_full and isinstance(fetched, dict):
+                    resources = fetched.get("resources", {})
+                    failed = fetched.get("failed", [])
+                    response_data["resource_count"] = len(resources)
+                    response_data["failed_resources"] = failed
+
+                return _proxy_response(200, response_data)
 
         parsed = parse_html(html, max_snippet_chars=parse_max, full_text=want_full)
     except Exception as exc:

@@ -1,7 +1,8 @@
 {
   "name": "react-client",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
+  "description": "React client for AWS Lambda Crawler with AI-powered summarization using AWS Bedrock",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

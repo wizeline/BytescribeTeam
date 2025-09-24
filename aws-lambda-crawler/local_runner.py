@@ -10,8 +10,13 @@ def main():
     parser.add_argument("-f", "--full", action="store_true", help="Request full content (download page resources)")
     parser.add_argument("--full-text", action="store_true", help="Return the full extracted text instead of a snippet")
     parser.add_argument("--snippet-max", type=int, help="Override PARSE_SNIPPET_MAX for this run")
-    parser.add_argument("--action", help="Action to perform (e.g. index)")
+    parser.add_argument("--action", help="Action to perform (e.g. index, summarize)")
     parser.add_argument("--output", help="Write the handler response body to this file (JSON)")
+    parser.add_argument("--summary-length", choices=["short", "medium", "long"], default="medium", 
+                       help="Summary length for summarize action (default: medium)")
+    parser.add_argument("--focus", help="Focus area for summarization (e.g. 'key findings', 'technical details')")
+    parser.add_argument("--model-id", default="anthropic.claude-3-haiku-20240307-v1:0",
+                       help="Bedrock model ID for summarization (default: Claude 3 Haiku)")
     args = parser.parse_args()
 
     if args.snippet_max is not None:
@@ -24,6 +29,12 @@ def main():
         event["full_text"] = True
     if args.action:
         event["action"] = args.action
+        # Add summarization parameters if using summarize action
+        if args.action == "summarize":
+            event["summary_length"] = args.summary_length
+            if args.focus:
+                event["focus"] = args.focus
+            event["model_id"] = args.model_id
 
     result = lambda_handler(event)
     # Try to parse returned body JSON for nicer output and optional file write
