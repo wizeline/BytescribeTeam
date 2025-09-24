@@ -407,15 +407,24 @@ export default function App() {
           {Array.isArray(result.images) && result.images.length > 0 && (
             <div style={{ marginTop: 12 }}>
               <h4>Images</h4>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {result.images.map((img, idx) => (
-                  <div key={img.src || idx} style={{ width: 160, textAlign: 'center' }}>
+                  <div
+                    key={img.src || idx}
+                    style={{ width: 160, textAlign: "center" }}
+                  >
                     <img
                       src={img.src}
-                      alt={img.alt || img.title || ''}
-                      style={{ maxWidth: '100%', maxHeight: 120, objectFit: 'contain', border: '1px solid #eee', borderRadius: 4 }}
+                      alt={img.alt || img.title || ""}
+                      style={{
+                        maxWidth: "100%",
+                        maxHeight: 120,
+                        objectFit: "contain",
+                        border: "1px solid #eee",
+                        borderRadius: 4,
+                      }}
                     />
-                    <div style={{ fontSize: 11, color: '#555', marginTop: 4 }}>
+                    <div style={{ fontSize: 11, color: "#555", marginTop: 4 }}>
                       {img.title || img.alt || img.src}
                     </div>
                   </div>
@@ -427,23 +436,63 @@ export default function App() {
           {Array.isArray(result.videos) && result.videos.length > 0 && (
             <div style={{ marginTop: 12 }}>
               <h4>Videos</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 12 }}
+              >
                 {result.videos.map((video, idx) => (
                   <div key={video.poster || idx}>
-                    {Array.isArray(video.sources) && video.sources.length > 0 ? (
-                      <video controls width="420" poster={video.poster} style={{ maxWidth: '100%', borderRadius: 4 }}>
+                    {Array.isArray(video.sources) &&
+                    video.sources.length > 0 ? (
+                      <video
+                        controls
+                        width="420"
+                        poster={video.poster}
+                        style={{ maxWidth: "100%", borderRadius: 4 }}
+                      >
                         {video.sources.map((s, sidx) => (
-                          <source key={s.src || sidx} src={s.src} type={s.type || ''} />
+                          <source
+                            key={s.src || sidx}
+                            src={s.src}
+                            type={s.type || ""}
+                          />
                         ))}
-                        Your browser does not support the video tag. <a href={video.sources[0].src} target="_blank" rel="noopener noreferrer">Open video</a>
+                        Your browser does not support the video tag.{" "}
+                        <a
+                          href={video.sources[0].src}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Open video
+                        </a>
                       </video>
                     ) : (
                       <div>
-                        <a href={video.sources && video.sources[0] ? video.sources[0].src : '#'} target="_blank" rel="noopener noreferrer">Open video</a>
+                        <a
+                          href={
+                            video.sources && video.sources[0]
+                              ? video.sources[0].src
+                              : "#"
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Open video
+                        </a>
                       </div>
                     )}
-                    <div style={{ fontSize: 12, color: '#555', marginTop: 6 }}>
-                      {video.poster && <span>Poster: <a href={video.poster} target="_blank" rel="noopener noreferrer">{video.poster}</a></span>}
+                    <div style={{ fontSize: 12, color: "#555", marginTop: 6 }}>
+                      {video.poster && (
+                        <span>
+                          Poster:{" "}
+                          <a
+                            href={video.poster}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            {video.poster}
+                          </a>
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -456,11 +505,25 @@ export default function App() {
               <h4>References / Links</h4>
               <ul>
                 {result.references.map((ref, idx) => (
-                  <li key={ref.href || idx} style={{ fontSize: 13, marginBottom: 6 }}>
-                    <a href={ref.href} target="_blank" rel="noopener noreferrer" style={{ color: '#007bff' }}>
+                  <li
+                    key={ref.href || idx}
+                    style={{ fontSize: 13, marginBottom: 6 }}
+                  >
+                    <a
+                      href={ref.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: "#007bff" }}
+                    >
                       {ref.text || ref.title || ref.href}
                     </a>
-                    {ref.title && <span style={{ marginLeft: 8, color: '#666', fontSize: 12 }}>({ref.title})</span>}
+                    {ref.title && (
+                      <span
+                        style={{ marginLeft: 8, color: "#666", fontSize: 12 }}
+                      >
+                        ({ref.title})
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -470,12 +533,30 @@ export default function App() {
           {Array.isArray(result.embedded) && result.embedded.length > 0 && (
             <div style={{ marginTop: 12 }}>
               <h4>Embedded</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 12 }}
+              >
                 {result.embedded.map((emb, idx) => (
                   <div key={emb.src || idx}>
-                    <div style={{ fontSize: 12, color: '#333', marginBottom: 6 }}>{emb.title || emb.type || emb.src}</div>
-                    <div style={{ border: '1px solid #eee', borderRadius: 4, overflow: 'hidden' }}>
-                      <iframe src={emb.src} title={emb.title || `embedded-${idx}`} width={emb.width || '560'} height={emb.height || '315'} style={{ width: '100%', height: 315, border: 0 }} />
+                    <div
+                      style={{ fontSize: 12, color: "#333", marginBottom: 6 }}
+                    >
+                      {emb.title || emb.type || emb.src}
+                    </div>
+                    <div
+                      style={{
+                        border: "1px solid #eee",
+                        borderRadius: 4,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <iframe
+                        src={emb.src}
+                        title={emb.title || `embedded-${idx}`}
+                        width={emb.width || "560"}
+                        height={emb.height || "315"}
+                        style={{ width: "100%", height: 315, border: 0 }}
+                      />
                     </div>
                   </div>
                 ))}
