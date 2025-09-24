@@ -10,7 +10,8 @@ import os
 
 from botocore.exceptions import ClientError
 from app.constants import (
-    BEDROCK_MODEL_AWS_TITANT
+    BEDROCK_MODEL_AWS_TITANT,
+    BEDROCK_MODEL_ANTHROPIC_CLAUDE35
 )
 from app.core.config import settings
 
@@ -56,7 +57,7 @@ def summarize_page(
     model_id=BEDROCK_MODEL_AWS_TITANT
 ):
     _TextGenerationConfig = {
-        "maxTokenCount": 1024,
+        "maxTokenCount": 8192,
         "temperature": 0.7
     }
 
