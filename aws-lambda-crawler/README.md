@@ -8,6 +8,13 @@ Features:
 - Parse title and text content
 - Lambda handler that accepts `url` in the event
 
+Additional output fields (new):
+
+- `images`: array of image objects with `src`, `alt`, `title`, `width`, `height`, `class`.
+- `videos`: array of video objects with `sources` (each has `src` and `type`), `poster`, `controls`, `autoplay`, `loop`, `width`, `height`.
+- `references`: array of link objects with `href`, `text`, `title`, `target`, `rel`.
+- `embedded`: array of embedded items (iframes) with `src`, `title`, `width`, `height`, `type`.
+
 Using Poetry:
 
 1. Install Poetry (if not installed):

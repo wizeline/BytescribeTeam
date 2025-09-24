@@ -34,6 +34,11 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:ListFoundationModels
+                Resource: '*'
 
   CrawlerFunction:
     Type: AWS::Serverless::Function
@@ -51,6 +56,8 @@ Resources:
         Variables:
           # Name (or ARN) of the secret in AWS Secrets Manager containing Confluence credentials
           CONFLUENCE_SECRET_NAME: !Ref ConfluenceSecretName
+          # Region for Bedrock runtime client
+          REGION: !Ref AWS::Region
       Events:
         Api:
           Type: Api
