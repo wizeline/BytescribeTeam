@@ -1,4 +1,5 @@
 "use client";
+import { ArticleSummaryContext } from "@/contexts/ArticleSummary";
 import {
   Backdrop,
   Box,
@@ -8,7 +9,7 @@ import {
   TextField,
 } from "@mui/material";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 
 export default function UrlBox(props: BoxProps) {
@@ -21,6 +22,8 @@ export default function UrlBox(props: BoxProps) {
 
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+
+  const { _, setSummary} = useContext(ArticleSummaryContext);
 
   const onSubmit = (data: { urlPath: string }) => {
     const { urlPath } = data;
@@ -42,14 +45,18 @@ export default function UrlBox(props: BoxProps) {
       },
       body: JSON.stringify({ url: payload }),
     })
-      .then(async (res) => {
-        const text = await res.text();
-        if (!res.ok) {
-          throw new Error(text || `Request failed with ${res.status}`);
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Request failed with ${response.status}`);
         }
-        return text;
-      })
-      .then((responseText) => {
+
+        const data = await response.json();
+        console.log(data)
+        
+        setSummary({
+          images: data.images,
+          text: data.summary.result.outputText,
+        })
         router.push("editing");
       })
       .catch((err) => {
