@@ -6,6 +6,12 @@ Parameters:
   ConfluenceSecretName:
     Type: String
     Description: 'Secrets Manager secret name or ARN with Confluence credentials'
+  S3UploadBucket:
+    Type: String
+    Description: 'S3 bucket name used by the crawler at runtime to upload media (presigned URLs)'
+  S3UploadPrefix:
+    Type: String
+    Description: 'Optional S3 key prefix (folder) for runtime uploaded media'
 
 Resources:
   CrawlerExecutionRole:
@@ -39,6 +45,11 @@ Resources:
                   - bedrock:InvokeModel
                   - bedrock:ListFoundationModels
                 Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                Resource: !Sub 'arn:aws:s3:::${S3UploadBucket}/*'
 
   CrawlerFunction:
     Type: AWS::Serverless::Function
@@ -58,6 +69,9 @@ Resources:
           CONFLUENCE_SECRET_NAME: !Ref ConfluenceSecretName
           # Region for Bedrock runtime client
           REGION: !Ref AWS::Region
+          # Runtime S3 settings for uploading media and generating presigned URLs
+          S3_UPLOAD_BUCKET: !Ref S3UploadBucket
+          S3_UPLOAD_PREFIX: !Ref S3UploadPrefix
       Events:
         Api:
           Type: Api

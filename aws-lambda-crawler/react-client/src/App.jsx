@@ -18,6 +18,8 @@ export default function App() {
   const [maxTokenCount, setMaxTokenCount] = useState(2048);
   const [checkingModels, setCheckingModels] = useState(false);
   const [availableModels, setAvailableModels] = useState([]);
+  // New client-side options
+  const [preferPresigned, setPreferPresigned] = useState(true);
 
   const availableModelOptions = [
     { value: "", label: "Default (amazon.titan-text-express-v1)" },
@@ -232,6 +234,17 @@ export default function App() {
           </div>
         )}
 
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ marginRight: 16 }}>
+            <input
+              type="checkbox"
+              checked={preferPresigned}
+              onChange={(e) => setPreferPresigned(e.target.checked)}
+            />{" "}
+            Prefer presigned URLs for media (if available)
+          </label>
+        </div>
+
         <button type="submit" disabled={loading || !url}>
           {loading ? "Crawling…" : "Crawl"}
         </button>
@@ -413,8 +426,17 @@ export default function App() {
                     key={img.src || idx}
                     style={{ width: 160, textAlign: "center" }}
                   >
+                    {/* prefer presigned URL from uploaded_media when available (toggle) */}
                     <img
-                      src={img.src}
+                      src={
+                        preferPresigned
+                          ? (result.uploaded_media &&
+                              result.uploaded_media.find(
+                                (m) => m.source_url === img.src,
+                              )?.presigned_url) ||
+                            img.src
+                          : img.src
+                      }
                       alt={img.alt || img.title || ""}
                       style={{
                         maxWidth: "100%",
@@ -449,16 +471,30 @@ export default function App() {
                         poster={video.poster}
                         style={{ maxWidth: "100%", borderRadius: 4 }}
                       >
-                        {video.sources.map((s, sidx) => (
-                          <source
-                            key={s.src || sidx}
-                            src={s.src}
-                            type={s.type || ""}
-                          />
-                        ))}
+                        {video.sources.map((s, sidx) => {
+                          // prefer presigned URL from uploaded_media matching source
+                          const presigned =
+                            result.uploaded_media &&
+                            result.uploaded_media.find(
+                              (m) => m.source_url === s.src,
+                            )?.presigned_url;
+                          return (
+                            <source
+                              key={s.src || sidx}
+                              src={presigned || s.src}
+                              type={s.type || ""}
+                            />
+                          );
+                        })}
                         Your browser does not support the video tag.{" "}
                         <a
-                          href={video.sources[0].src}
+                          href={
+                            (result.uploaded_media &&
+                              result.uploaded_media.find(
+                                (m) => m.source_url === video.sources[0].src,
+                              )?.presigned_url) ||
+                            video.sources[0].src
+                          }
                           target="_blank"
                           rel="noopener noreferrer"
                         >
@@ -561,6 +597,55 @@ export default function App() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Uploaded media section (presigned URLs) */}
+          {Array.isArray(result.uploaded_media) &&
+            result.uploaded_media.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <h4>Uploaded media (presigned URLs)</h4>
+                <ul>
+                  {result.uploaded_media.map((m, idx) => (
+                    <li
+                      key={m.s3_key || idx}
+                      style={{ fontSize: 13, marginBottom: 6 }}
+                    >
+                      <div>
+                        <strong>source:</strong>{" "}
+                        <a
+                          href={m.source_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {m.source_url}
+                        </a>
+                      </div>
+                      <div>
+                        <strong>s3_key:</strong> {m.s3_key || "-"}
+                      </div>
+                      <div>
+                        <a
+                          href={m.presigned_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Open presigned URL
+                        </a>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+          {/* Debug: show raw media_refs if present */}
+          {result.media_refs && (
+            <div style={{ marginTop: 12 }}>
+              <h4>Media references (raw)</h4>
+              <pre style={{ fontSize: 12, background: "#f6f8fa", padding: 8 }}>
+                {JSON.stringify(result.media_refs, null, 2)}
+              </pre>
             </div>
           )}
         </div>
