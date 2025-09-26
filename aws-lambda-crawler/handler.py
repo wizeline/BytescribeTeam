@@ -11,6 +11,9 @@ except Exception as e:
     print(f"Warning: Could not import summarize_page: {e}")
     summarize_page = None
 import os
+import hashlib
+import boto3
+from botocore.exceptions import ClientError
 
 
 def _cors_headers():
@@ -166,6 +169,87 @@ def lambda_handler(event, context=None):
                 kwargs["model_id"] = model_id
             if text_config and isinstance(text_config, dict):
                 kwargs["text_config"] = text_config
+
+            # If fetched resources exist, attempt to upload media (images/videos) to S3
+            media_refs = []
+            try:
+                # Determine bucket and optional prefix from environment
+                s3_bucket = os.getenv("S3_UPLOAD_BUCKET") or os.getenv("BUCKET_NAME")
+                s3_prefix = os.getenv("S3_UPLOAD_PREFIX", "")
+
+                # Helper to upload bytes to S3 and return an https URL
+                s3_client = boto3.client("s3")
+
+                def _upload_to_s3(key: str, data: bytes, content_type: str = None):
+                    """Upload bytes to S3 and return a dict with upload_key and presigned_url (or None on failure)."""
+                    upload_key = f"{s3_prefix.rstrip('/')}/{key}".lstrip('/') if s3_prefix else key
+                    try:
+                        extra_args = {"ACL": "private"}
+                        if content_type:
+                            extra_args["ContentType"] = content_type
+                        s3_client.put_object(Bucket=s3_bucket, Key=upload_key, Body=data, **({} if not extra_args else {k: v for k, v in extra_args.items()}))
+
+                        # Generate a presigned GET URL so downstream consumers can fetch the object
+                        expires = int(os.getenv("S3_PRESIGNED_EXPIRES", "3600"))
+                        presigned = s3_client.generate_presigned_url(
+                            "get_object",
+                            Params={"Bucket": s3_bucket, "Key": upload_key},
+                            ExpiresIn=expires,
+                        )
+                        return {"upload_key": upload_key, "presigned_url": presigned}
+                    except ClientError as exc:
+                        print(f"S3 upload or presign failed for {upload_key}: {exc}")
+                        return None
+
+                # Only upload if bucket configured and we have resource bytes
+                if s3_bucket and isinstance(fetched, dict):
+                    resources = fetched.get("resources", {})
+                    # Upload each resource keyed by sha256 of url + basename
+                    for url_res, data in resources.items():
+                        if not data:
+                            continue
+                        # Create a stable key name
+                        parsed_name = url_res.split("/")[-1] or "resource"
+                        sha = hashlib.sha256(url_res.encode("utf-8")).hexdigest()[:10]
+                        key = f"{sha}_{parsed_name}"
+                        uploaded = _upload_to_s3(key, data)
+                        if uploaded:
+                            media_refs.append({
+                                "source_url": url_res,
+                                "s3_key": uploaded.get("upload_key"),
+                                "presigned_url": uploaded.get("presigned_url")
+                            })
+
+                    # Also include images and videos parsed from the HTML (may be duplicates)
+                    for img in parsed.get("images", []) or []:
+                        src = img.get("src")
+                        # find matching uploaded entry
+                        match = next((m for m in media_refs if m.get("source_url") == src), None)
+                        if not match:
+                            media_refs.append({
+                                "source_url": src,
+                                "presigned_url": None,
+                                "alt": img.get("alt"),
+                                "title": img.get("title"),
+                            })
+                    for vid in parsed.get("videos", []) or []:
+                        for srcobj in vid.get("sources", []) or []:
+                            src = srcobj.get("src")
+                            match = next((m for m in media_refs if m.get("source_url") == src), None)
+                            if not match:
+                                media_refs.append({
+                                    "source_url": src,
+                                    "presigned_url": None,
+                                    "type": srcobj.get("type")
+                                })
+            except Exception as exc:
+                # Don't let S3 issues stop summarization; record in payload later
+                print(f"S3 upload pass failed: {exc}")
+
+            if media_refs:
+                kwargs["media_refs"] = media_refs
+                # Also expose the uploaded media list in the response so API clients can use presigned URLs
+                response_payload["uploaded_media"] = media_refs
 
             summary_resp = summarize_page(content_page=content_to_summary, **kwargs)
             # summary_resp is typically a dict like {"result": ...}

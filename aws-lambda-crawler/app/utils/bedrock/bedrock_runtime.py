@@ -96,7 +96,8 @@ def check_model_access():
 def summarize_page(
     content_page="",
     text_config={},
-    model_id=BEDROCK_MODEL_AWS_TITANT
+    model_id=BEDROCK_MODEL_AWS_TITANT,
+    media_refs=None,
 ):
     _TextGenerationConfig = {
         "maxTokenCount": 8192,
@@ -119,8 +120,28 @@ def summarize_page(
             models_to_try.append(model)
             seen.add(model)
 
+    # If media references were provided, build a small JSON block to append for structured context
+    media_block = ""
+    try:
+        if media_refs:
+            # Normalize media refs to only include useful keys
+            normalized = []
+            for m in media_refs:
+                normalized.append({
+                    "source_url": m.get("source_url"),
+                    "presigned_url": m.get("presigned_url") or m.get("s3_url"),
+                    "s3_key": m.get("s3_key"),
+                    "alt": m.get("alt"),
+                    "title": m.get("title"),
+                    "type": m.get("type"),
+                })
+            media_json = json.dumps(normalized, indent=2)
+            media_block = f"\n\nAdditional media references (JSON):\n{media_json}\n"
+    except Exception:
+        media_block = ""
+
     body = json.dumps({
-        "inputText": _DEFAULT_PROMPT + content_page,
+        "inputText": _DEFAULT_PROMPT + content_page + media_block,
         "textGenerationConfig": {
             **_TextGenerationConfig,
             **text_config

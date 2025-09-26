@@ -70,3 +70,25 @@ Notes on crawler improvements:
 - `crawler/fetcher.py` now honors `robots.txt` when possible and includes a small retry/backoff strategy.
 - If a site blocks or refuses `robots.txt`, the fetcher will assume allowed.
 - The `pyproject.toml` now uses `tool.poetry.group.dev.dependencies` for dev deps and accepts Python `>=3.9,<4.0`.
+
+## S3 upload & media presign notes
+
+Environment variables used by the code added in this branch:
+
+- `S3_UPLOAD_BUCKET` or `BUCKET_NAME`: bucket to upload crawled resources to (preferred: `S3_UPLOAD_BUCKET`).
+- `S3_UPLOAD_PREFIX`: optional key prefix for uploaded objects.
+- `S3_PRESIGNED_EXPIRES`: presigned URL expiry in seconds (default 3600).
+- `REGION`: optional AWS region (falls back to boto3 client metadata).
+
+There is a small smoke runner that mocks boto3 and the summarizer so you can run a quick local check without AWS credentials:
+
+```bash
+python smoke_run.py
+```
+
+If you want to run the pytest unit, install pytest and run:
+
+```bash
+python -m pip install pytest
+pytest -q tests/test_handler_media_upload.py::test_lambda_handler_uploads_and_passes_media
+```
