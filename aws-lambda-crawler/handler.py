@@ -253,6 +253,35 @@ def lambda_handler(event, context=None):
 
             summary_resp = summarize_page(content_page=content_to_summary, **kwargs)
             # summary_resp is typically a dict like {"result": ...}
+            # If the model returned an `outputText` string, convert it to an
+            # array by splitting on newlines, trimming whitespace and removing
+            # any empty lines. This makes it easier for clients to consume
+            # list-like summaries.
+            try:
+                if isinstance(summary_resp, dict):
+                    # helper to convert any dict's outputText string into a
+                    # list of trimmed non-empty lines and store it under
+                    # `outputTextArray` so we don't overwrite the original
+                    # `outputText` field.
+                    def _convert_output_to_array(obj: dict):
+                        if not isinstance(obj, dict):
+                            return
+                        out = obj.get("outputText")
+                        if isinstance(out, str):
+                            obj["outputTextArray"] = [line.strip() for line in out.splitlines() if line.strip()]
+
+                    # Convert top-level outputText if present
+                    _convert_output_to_array(summary_resp)
+
+                    # Also convert nested result.outputText when the model
+                    # returns a `result` wrapper (common for some runtimes)
+                    if isinstance(summary_resp.get("result"), dict):
+                        _convert_output_to_array(summary_resp["result"])
+            except Exception:
+                # Be defensive: if something goes wrong transforming the
+                # field, keep the original summary_resp unchanged.
+                pass
+
             response_payload["summary"] = summary_resp
         except Exception as exc:
             # Don't fail the whole request if summarization fails
