@@ -12,7 +12,7 @@ export default function Layout({
   const [summary, setSummary] = useState({});
 
   return (
-  <ArticleSummaryContext.Provider value={{summary, setSummary}}>
+    <ArticleSummaryContext.Provider value={{ summary, setSummary }}>
       <Container component={"main"}>
         <Box display={"flex"} justifyContent={"center"} py={3}>
           <Image

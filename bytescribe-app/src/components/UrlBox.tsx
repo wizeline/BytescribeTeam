@@ -4,6 +4,7 @@ import {
   Backdrop,
   Box,
   BoxProps,
+  Button,
   CircularProgress,
   InputLabel,
   TextField,
@@ -23,16 +24,16 @@ export default function UrlBox(props: BoxProps) {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  const { _, setSummary} = useContext(ArticleSummaryContext);
+  const { summary, setSummary } = useContext(ArticleSummaryContext);
 
   const onSubmit = (data: { urlPath: string }) => {
     const { urlPath } = data;
     const payload = encodeURI(urlPath);
 
-    const apiUrl = process.env.NEXT_PUBLIC_LAMBDA_API;
+    const apiUrl = process.env.NEXT_PUBLIC_CRAWLER_API;
 
     if (!apiUrl) {
-      alert("Lambda API URL not configured. Set NEXT_PUBLIC_LAMBDA_API.");
+      alert("Lambda API URL not configured. Set NEXT_PUBLIC_CRAWLER_API.");
       return;
     }
 
@@ -51,12 +52,20 @@ export default function UrlBox(props: BoxProps) {
         }
 
         const data = await response.json();
-        console.log(data)
-        
+        const highlights = (
+          data.summary.result.outputTextArray as string[]
+        ).map((value, i) => {
+          return {
+            text: value,
+            image: data.images[i],
+          };
+        });
+        console.log(highlights);
         setSummary({
-          images: data.images,
-          text: data.summary.result.outputText,
-        })
+          title: data.title,
+          highlights: highlights,
+        });
+
         router.push("editing");
       })
       .catch((err) => {
@@ -71,41 +80,52 @@ export default function UrlBox(props: BoxProps) {
   return (
     <>
       <form onSubmit={handleSubmit(onSubmit)}>
-        <Box {...props}>
-          <Box>
-            <InputLabel htmlFor="input-url">URL: </InputLabel>
-          </Box>
+        <Box 
+          display={"flex"}
+          flexDirection={"column"}
+          gap={2}
+          justifyContent={"center"} {...props}>
+          <Box
+          display={"flex"}
+          gap={2}
+          justifyContent={"center"}
+          alignItems={"center"}>
+            <Box>
+              <InputLabel htmlFor="input-url">URL: </InputLabel>
+            </Box>
 
-          <Controller
-            name="urlPath"
-            control={control}
-            render={({ field, fieldState }) => (
-              <>
-                <TextField
-                  id="input-url"
-                  label=""
-                  variant="outlined"
-                  fullWidth
-                  {...field}
-                  required
-                  error={!!fieldState.error}
-                  helperText={
-                    fieldState.error &&
-                    (fieldState.error.message || "Failed to validate.")
-                  }
-                  sx={{ height: "3.5rem", boxShadow: 2, borderRadius: 1 }}
-                ></TextField>
-              </>
-            )}
-            rules={{
-              pattern: {
-                message: "Invalid url.",
-                value:
-                  /[(http(s)?):\/\/(www\.)?a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)/,
-              },
-              required: "Please enter a valid url.",
-            }}
-          />
+            <Controller
+              name="urlPath"
+              control={control}
+              render={({ field, fieldState }) => (
+                <>
+                  <TextField
+                    id="input-url"
+                    label=""
+                    variant="outlined"
+                    fullWidth
+                    {...field}
+                    required
+                    error={!!fieldState.error}
+                    helperText={
+                      fieldState.error &&
+                      (fieldState.error.message || "Failed to validate.")
+                    }
+                    sx={{ height: "3.5rem", boxShadow: 2, borderRadius: 1 }}
+                  ></TextField>
+                </>
+              )}
+              rules={{
+                pattern: {
+                  message: "Invalid url.",
+                  value:
+                    /[(http(s)?):\/\/(www\.)?a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)/,
+                },
+                required: "Please enter a valid url.",
+              }}
+            />
+          </Box>
+          <Button variant="contained" type="submit" disabled={loading} sx={{ alignSelf: "end" }}>Go</Button>
         </Box>
       </form>
       <Backdrop open={loading}>

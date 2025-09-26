@@ -3,10 +3,20 @@
 import Image from "next/image";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useFieldArray, useForm } from "react-hook-form";
-import { Box, Button, ButtonGroup, FormHelperText, Paper } from "@mui/material";
+import {
+  Box,
+  Button,
+  ButtonGroup,
+  FormHelperText,
+  MenuItem,
+  Paper,
+  Select,
+} from "@mui/material";
 import * as yup from "yup";
 import { yupResolver } from "@hookform/resolvers/yup";
-import { useMemo } from "react";
+import { useContext, useMemo, useState } from "react";
+import { ArticleSummaryContext } from "@/contexts/ArticleSummary";
+import { useRouter } from "next/navigation";
 
 const schema = yup
   .object({
@@ -16,11 +26,11 @@ const schema = yup
         yup
           .object({
             order: yup.number().required("ID must be required"),
-            highlights: yup
+            text: yup
               .string()
               .max(128, "Highlight text can't be longer than 128 characters")
               .required("Highlights is required"),
-            images: yup.array().of(yup.string().required()),
+            image: yup.string(),
           })
           .required(),
       )
@@ -28,43 +38,25 @@ const schema = yup
   })
   .required();
 
-const rowData = [
-  {
-    order: 1,
-    highlights: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
-    images: ["https://picsum.photos/120/80"],
-  },
-  {
-    order: 2,
-    highlights:
-      "Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
-    images: ["https://picsum.photos/120/80"],
-  },
-  {
-    order: 3,
-    highlights:
-      "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
-    images: ["https://picsum.photos/120/80"],
-  },
-  {
-    order: 4,
-    highlights:
-      "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.",
-    images: [],
-  },
-  {
-    order: 5,
-    highlights:
-      "Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.",
-    images: ["https://picsum.photos/120/80"],
-  },
-];
+const placeHolderImg = "https://picsum.photos/120/80";
 
 export default function HighlightsTable() {
   const {
+    summary: { highlights },
+    setSummary,
+  } = useContext(ArticleSummaryContext);
+
+  const [rowData, setRowData] = useState((highlights || []).map(({ text, image }, id) => ({
+    order: id,
+    text: text,
+    image: image?.src || "",
+  })));
+
+  const [loading, setLoading] = useState(false);
+
+  const {
     control,
     handleSubmit,
-    getValues,
     trigger,
     formState: { errors },
   } = useForm({
@@ -80,6 +72,13 @@ export default function HighlightsTable() {
   });
 
   const updateRow = (newRowValue: (typeof rowData)[0]) => {
+    const rowIndex = rowData.findIndex(
+      (row) => newRowValue.order === row.order,
+    );
+    const newRows = [...rowData];
+    newRows[rowIndex] = newRowValue;
+    setRowData(newRows);
+
     const fieldIndex = fields.findIndex(
       (field) => newRowValue.order === field.order,
     );
@@ -87,18 +86,54 @@ export default function HighlightsTable() {
     trigger();
   };
 
-  const onSubmit = async () => {
-    const isFormValid = await trigger();
-    if (isFormValid) {
-      alert(`Form is valid: ${JSON.stringify(getValues())}`);
-    }
+  const apiUrl = process.env.NEXT_PUBLIC_ELEVENLABS_API;
+
+  const onSubmit = async (data) => {
+    console.log(data)
+    const payload = data;
+    fetch(apiUrl!, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`Request failed with ${response.status}`);
+      }
+
+      const data = await response.json();
+      const highlights = (
+        data.summary.result.outputTextArray as string[]
+      ).map((value, i) => {
+        return {
+          text: value,
+          image: data.images[i],
+        };
+      });
+      console.log(highlights);
+      setSummary({
+        title: data.title,
+        highlights: highlights,
+      });
+
+      router.push("editing");
+    })
+    .catch((err) => {
+      console.error(err);
+      alert(`Error sending URL: ${err.message || err}`);
+    })
+    .finally(() => {
+      setLoading(false);
+    });
   };
 
   const columns: GridColDef<(typeof rowData)[number]>[] = useMemo(
     () => [
       { field: "order", headerName: "", width: 90 },
       {
-        field: "highlights",
+        field: "text",
         headerName: "Highlights",
         flex: 1,
         editable: true,
@@ -107,12 +142,12 @@ export default function HighlightsTable() {
           return (
             <Box position={"relative"} height={"100%"}>
               {value}
-              {errors.items && errors.items[index]?.highlights && (
+              {errors.items && errors.items[index]?.text && (
                 <FormHelperText
                   error
                   sx={{ position: "absolute", bottom: "-1rem" }}
                 >
-                  {errors.items[index]?.highlights.message || "Field is error"}
+                  {errors.items[index]?.text.message || "Field is error"}
                 </FormHelperText>
               )}
             </Box>
@@ -120,62 +155,106 @@ export default function HighlightsTable() {
         },
       },
       {
-        field: "images",
+        field: "image",
         headerName: "Images",
         width: 150,
         editable: true,
         renderCell: ({ value, row }) =>
           value ? (
-            <>
-              {(value as string[]).map((url, id) => (
-                <Image
-                  key={`img${row.order}-${id}`}
-                  src={url}
-                  alt={row.highlights}
-                  width={120}
-                  height={80}
-                  priority
-                />
-              ))}
-            </>
+            <img
+              src={value}
+              alt={row.text}
+              width={120}
+              height={80}
+              // priority
+            />
           ) : null,
+        renderEditCell: ({ id, value, api, field }) => (
+          <Select
+            labelId="demo-simple-select-label"
+            id="demo-simple-select"
+            value={value}
+            label=""
+            fullWidth
+            onChange={(event) => {
+              console.log(event);
+              // Update the cell value in the DataGrid's state
+              api.setEditCellValue({
+                id: id,
+                field: field,
+                value: event.target.value,
+              });
+            }}
+          >
+            {(highlights || [])
+              .map(({ image }) => image)
+              .filter((image) => !!image)
+              .map(({ src }, id) => (
+                <MenuItem key={`${src}-${id}`} value={src}>
+                  <img
+                    src={src}
+                    alt={"Article Picture"}
+                    width={120}
+                    height={80}
+                    // priority
+                  />
+                </MenuItem>
+              ))}
+          </Select>
+        ),
       },
     ],
-    [errors, fields],
+    [errors.items, fields],
   );
 
+  const router = useRouter();
+
+  if (!apiUrl) {
+    alert("Lambda API URL not configured. Set NEXT_PUBLIC_CRAWLER_API.");
+    return;
+  }
+
+  if (!highlights) {
+    alert("No data found. Go back and try again");
+    return;
+  }
+
   return (
-    <Box display={"flex"} flexDirection={"column"} gap={2}>
-      <Paper elevation={2}>
-        <DataGrid
-          rows={rowData}
-          getRowId={({ order }) => order}
-          columns={columns}
-          getRowHeight={() => "auto"}
-          initialState={{
-            pagination: {
-              paginationModel: {
-                pageSize: 10,
+    <form onSubmit={handleSubmit(onSubmit)}>
+      <Box display={"flex"} flexDirection={"column"} gap={2}>
+        <Paper elevation={2}>
+          <DataGrid
+            rows={rowData}
+            getRowId={({ order }) => order}
+            columns={columns}
+            getRowHeight={() => "auto"}
+            initialState={{
+              pagination: {
+                paginationModel: {
+                  pageSize: 10,
+                },
               },
-            },
-          }}
-          pageSizeOptions={[10]}
-          checkboxSelection
-          processRowUpdate={(newRow) => {
-            updateRow(newRow);
-            return newRow;
-          }}
-          sx={{
-            "& .MuiDataGrid-cell": {
-              paddingY: 2, // Adds vertical padding to rows
-            },
-          }}
-        />
-      </Paper>
-      <ButtonGroup variant="contained" sx={{ alignSelf: "end" }}>
-        <Button>Go Back</Button>
-        <Button onClick={() => !errors.items && onSubmit()}>Continue</Button>
-      </ButtonGroup>
-    </Box>
+            }}
+            pageSizeOptions={[10]}
+            checkboxSelection
+            processRowUpdate={(newRow) => {
+              console.log(newRow);
+              updateRow(newRow);
+              return newRow;
+            }}
+            sx={{
+              "& .MuiDataGrid-cell": {
+                paddingY: 2, // Adds vertical padding to rows
+              },
+            }}
+            loading={loading}
+          />
+        </Paper>
+        <ButtonGroup variant="contained" sx={{ alignSelf: "end" }}>
+          <Button onClick={() => router.push("home")}>Go Back</Button>
+          <Button type="submit" disabled={loading}>Continue</Button>
+        </ButtonGroup>
+      </Box>
+    </form>
   );
 }
