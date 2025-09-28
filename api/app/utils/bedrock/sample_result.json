@@ -1,0 +1,99 @@
+{
+    "url": "https://wizeline.atlassian.net/wiki/spaces/VS/pages/5029921190/Article+to+Video",
+    "title": "",
+    "text_snippet": "1. Architecture Amplify - live news segment api Step function - MREReplayGenerationStateMachine ArticleToVideo lambda VideoCaptionEventHandler lambda DynamoDB S3 2. Reels Flow This is a Step Function with a name that starts with 'MREReplayGenerationStateMachine' Example a Flow: Source code refs /source/backend/replay folder article_replay_handle.py under /samples/source/article-to-video/infrastructure folder 3. ImageServices 1.  GettyImages Docs: https://docs.google.com/document/d/1ZMJmbt-ghBJBN03B4Rt_1Y6yI8ZU7oo5vI17isyJF7Y/edit?usp=sharing 2. Blue Larkspur SDK Docs: https://docs.google.com/document/d/1nyOxgbeBWM65-0YKHzke_zseyQXFllU-f8HHG68-xqA/edit?usp=sharing 3. Bedrock Agent + KB Docs: https://docs.google.com/document/d/154SR-_RLG9Kya-9LWt1M5BiasRY9bvnYZp5iYnb1kus/edit?usp=sharing 4. Caption Requirement: Caption with style \u201cword highlight by speaker\u201d Libs: moviepy ffmpeg 16:9 resolution flows During a2v reels processing then create 16:9 video, upload some files to S3 with path <s3_bucket>/mp4replay/<replay_id>. The files are: Original 16:9 video with no caption Caption file: polly_caption_<uuid>.json Invoke VideoCaption lambda with 1 json payload expected to add caption to video and upload file to 16:9 resolution folder. lambda will download file video and caption from s3 to local From json caption file will split to segments include start, end time and text base on MAX_WORDS_IN_LINE configuration Base on caption segments => reduce to caption track items what includes font styles, position, and highlight colors to add to video Use moviepy + caption track items to put text to video Upload result to s3 with output from payload Payload sample: {'State': 'ADD_CAPTION_TO_VIDEO', 'Event': {'Name': 'a2v Hackmans', 'Program': 'News'},\n                               'Payload': {\n                                   'Input': {\n                                        'Media': {\n                                           'S3Bucket': 'aws-mre-shared-resources-mremediaoutputbucket47893-jgua8ojywbzj',\n                                           'S3Key': 'mp4replay/9da83fa8-f1cf-46c5-a920-91331f35162a',\n                                           'ClipName': 'News_a2v Blue Origin_9da83fa8-f1cf-46c5-a920-91331f35162a.mp4'},\n                                        'Caption': {\n                                           'S3Bucket': 'aws-mre-shared-resources-mremediaoutputbucket47893-jgua8ojywbzj',\n                                           'S3Key': 'mp4replay/9da83fa8-f1cf-46c5-a920-91331f35162a',\n                                           'FileName': 'polly_caption_News_a2v Blue Origin_9da83fa8-f1cf-46c5-a920-91331f35162a.json',\n                                        'Source':'a2v'}\n                                    },\n                                   'Output': {\n                                       'Media':{\n                                    'S3Bucket': 'aws-mre-shared-resources-mremediaoutputbucket47893-jgua8ojywbzj',\n                                       'S3Key': 'mp4replay/9da83fa8-f1cf-46c5-a920-91331f35162a/16:9',\n                                       'ClipName': 'News_a2v Blue Origin_9da83fa8-f1cf-46c5-a920-91331f35162a.mp4'\n                                       }\n                                   },\n                                   'Configuration': {\n                                       'MAX_WORDS_IN_LINE': 8\n                                   }\n                               }} 9:16 resolution flows: After a2v reel to create 16:9 video done then will call 9:16 batch job to create video 9:16 format After 9:16 video created then will follows similar above steps  to add 16:9 to captions Source code refs video_helper.py under /samples/source/article-to-video/infrastructure folder VideoCaptionEventHandler under /samples/source/wl-function-samples/Functions 5. Hot deploy in developing process 1. Setup env: export AWS_DEFAULT_REGION=\nexport AWS_DEFAULT_REGION=\nexport AWS_PROFILE= 2. Script deploy Live News Segment API # cd to /samples/source/live-news-segmenter/api/infrastructure\n# run command\ncdk deploy VideoCaptionEventHandler # cd to /samples/deployment\n# run script\n./build-and-deploy.sh --app wl-function-samples ArticleToVideo # cd to /samples/source/article-to-video/infrastructure\n# run command\ncdk deploy Reels # cd to /source/backend/replay/infrastructure\n# run command\ncdk deploy",
+    "images": [
+        {
+            "src": "https://wizeline.atlassian.net/wiki/download/thumbnails/5029921190/image-20250915-071902.png?version=1&modificationDate=1757920746982&cacheVersion=1&api=v2&width=1800&height=970",
+            "alt": "image-20250915-071902.png",
+            "width": "1800",
+            "class": [
+                "confluence-embedded-image",
+                "image-center"
+            ]
+        },
+        {
+            "src": "https://wizeline.atlassian.net/wiki/download/thumbnails/5029921190/Screenshot%202025-05-28%20at%2011.46.53.png?version=1&modificationDate=1748407649219&cacheVersion=1&api=v2&width=730&height=652",
+            "alt": "Screenshot 2025-05-28 at 11.46.53.png",
+            "width": "730",
+            "class": [
+                "confluence-embedded-image",
+                "image-center"
+            ]
+        },
+        {
+            "src": "https://wizeline.atlassian.net/wiki/download/thumbnails/5029921190/Screenshot%202025-05-28%20at%2012.00.23.png?version=1&modificationDate=1748408442990&cacheVersion=1&api=v2&width=156&height=279",
+            "alt": "Screenshot 2025-05-28 at 12.00.23.png",
+            "width": "156",
+            "class": [
+                "confluence-embedded-image",
+                "image-center"
+            ]
+        }
+    ],
+    "videos": [],
+    "references": [
+        {
+            "href": "https://docs.google.com/document/d/1ZMJmbt-ghBJBN03B4Rt_1Y6yI8ZU7oo5vI17isyJF7Y/edit?usp=sharing",
+            "text": "https://docs.google.com/document/d/1ZMJmbt-ghBJBN03B4Rt_1Y6yI8ZU7oo5vI17isyJF7Y/edit?usp=sharing",
+            "rel": [
+                "nofollow"
+            ]
+        },
+        {
+            "href": "https://docs.google.com/document/d/1nyOxgbeBWM65-0YKHzke_zseyQXFllU-f8HHG68-xqA/edit?usp=sharing",
+            "text": "https://docs.google.com/document/d/1nyOxgbeBWM65-0YKHzke_zseyQXFllU-f8HHG68-xqA/edit?usp=sharing",
+            "rel": [
+                "nofollow"
+            ]
+        },
+        {
+            "href": "https://docs.google.com/document/d/154SR-_RLG9Kya-9LWt1M5BiasRY9bvnYZp5iYnb1kus/edit?usp=sharing",
+            "text": "https://docs.google.com/document/d/154SR-_RLG9Kya-9LWt1M5BiasRY9bvnYZp5iYnb1kus/edit?usp=sharing",
+            "rel": [
+                "nofollow"
+            ]
+        }
+    ],
+    "embedded": [],
+    "resource_count": 3,
+    "failed_resources": [],
+    "uploaded_media": [
+        {
+            "source_url": "https://wizeline.atlassian.net/wiki/download/thumbnails/5029921190/Screenshot%202025-05-28%20at%2011.46.53.png?version=1&modificationDate=1748407649219&cacheVersion=1&api=v2&width=730&height=652",
+            "s3_key": "ddh-media-uploads/b2c1101178_Screenshot%202025-05-28%20at%2011.46.53.png?version=1&modificationDate=1748407649219&cacheVersion=1&api=v2&width=730&height=652",
+            "presigned_url": "https://ddh-aws-lambda-crawler.s3.amazonaws.com/ddh-media-uploads/b2c1101178_Screenshot%25202025-05-28%2520at%252011.46.53.png%3Fversion%3D1%26modificationDate%3D1748407649219%26cacheVersion%3D1%26api%3Dv2%26width%3D730%26height%3D652?AWSAccessKeyId=ASIA5NSVNDUQLOZ3H2OS&Signature=CyQAd3VGutPPomAZIFR%2BueaRAZ0%3D&x-amz-security-token=IQoJb3JpZ2luX2VjECwaDmFwLXNvdXRoZWFzdC0yIkgwRgIhAMVg0q6jlHEq%2BkLLKZsQtHo%2FpAJMbtqO5l%2Ba%2B4p78mLBAiEAn9ODZh1y3rvfo3B6A4sS55l7TIPXp4pkDjHZIqF2bNoqhgMItf%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FARAAGgw5MjI1MjMzNDQxNjAiDBH%2B3UO7S%2F%2FY6uxqNSraAqZA5gECJtd7zamZu6%2BVQXsc0mmSWbcc4OEN4Ndw%2F3OiNI7vAqwZdKg7PbHzljhs%2B39AonjgSO5CJTQp3csAGe5OAvdfC5P9d7dfCJv4LkhqMVfKHdCcUFPf1PJubqMU4alvt9ubehgm6jqj3Rb1zaA8cOJoXGzW3gy2p7i%2BHtAq28%2Bok%2BWfdmcI0G%2FeZRQnxJpr7QR8NnAKaMxW3ADAGPCP9YTN9btDrmVaeBAP6Q%2BCrzr4i6S48Z1leJEKitQGkk4oTCG1CNo%2F9iA0rhGF0hE55H3q2C0LHT64iZoDl%2Fe2RPORqgCtcKmd1l4hYHDR%2BbVSIcX1oLSQxayJYpk7pAmVIXIGTgkx0eL8XvRm3YsXQs88U%2BAj74oQ2%2FINzQt1FnzZd1WNJGQH7LsqIKSCcuR3RyZyUN3frsA%2FgRYFcefK3BRjblks7Fie3D9TKcclnoaA1F3CgI0FMb0w1OXixgY6nQFMD2QfjsSSIzL2gOzwRjuEI300%2BsrRS4Yjm9ebE%2F6qIUBxufm%2BnYQILw7RNHWdAcF3ibGnh0B8agt11nkTIqTjKIkXeCqBMCbs0FEWXXxjlUCzbebmRStOZN96XSIb06khtY00b1DhThx50EFVqF920OSrYj8YZZV6tVoO28QlL4EDj%2FaYVCWYv4QkjbUSHVq4xCCNV9kFAk7exdbe&Expires=1759035631"
+        },
+        {
+            "source_url": "https://wizeline.atlassian.net/wiki/download/thumbnails/5029921190/image-20250915-071902.png?version=1&modificationDate=1757920746982&cacheVersion=1&api=v2&width=1800&height=970",
+            "s3_key": "ddh-media-uploads/0c5a195c95_image-20250915-071902.png?version=1&modificationDate=1757920746982&cacheVersion=1&api=v2&width=1800&height=970",
+            "presigned_url": "https://ddh-aws-lambda-crawler.s3.amazonaws.com/ddh-media-uploads/0c5a195c95_image-20250915-071902.png%3Fversion%3D1%26modificationDate%3D1757920746982%26cacheVersion%3D1%26api%3Dv2%26width%3D1800%26height%3D970?AWSAccessKeyId=ASIA5NSVNDUQLOZ3H2OS&Signature=3wG8dzo1EVWn%2FpgPLLFbDQfP5T0%3D&x-amz-security-token=IQoJb3JpZ2luX2VjECwaDmFwLXNvdXRoZWFzdC0yIkgwRgIhAMVg0q6jlHEq%2BkLLKZsQtHo%2FpAJMbtqO5l%2Ba%2B4p78mLBAiEAn9ODZh1y3rvfo3B6A4sS55l7TIPXp4pkDjHZIqF2bNoqhgMItf%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FARAAGgw5MjI1MjMzNDQxNjAiDBH%2B3UO7S%2F%2FY6uxqNSraAqZA5gECJtd7zamZu6%2BVQXsc0mmSWbcc4OEN4Ndw%2F3OiNI7vAqwZdKg7PbHzljhs%2B39AonjgSO5CJTQp3csAGe5OAvdfC5P9d7dfCJv4LkhqMVfKHdCcUFPf1PJubqMU4alvt9ubehgm6jqj3Rb1zaA8cOJoXGzW3gy2p7i%2BHtAq28%2Bok%2BWfdmcI0G%2FeZRQnxJpr7QR8NnAKaMxW3ADAGPCP9YTN9btDrmVaeBAP6Q%2BCrzr4i6S48Z1leJEKitQGkk4oTCG1CNo%2F9iA0rhGF0hE55H3q2C0LHT64iZoDl%2Fe2RPORqgCtcKmd1l4hYHDR%2BbVSIcX1oLSQxayJYpk7pAmVIXIGTgkx0eL8XvRm3YsXQs88U%2BAj74oQ2%2FINzQt1FnzZd1WNJGQH7LsqIKSCcuR3RyZyUN3frsA%2FgRYFcefK3BRjblks7Fie3D9TKcclnoaA1F3CgI0FMb0w1OXixgY6nQFMD2QfjsSSIzL2gOzwRjuEI300%2BsrRS4Yjm9ebE%2F6qIUBxufm%2BnYQILw7RNHWdAcF3ibGnh0B8agt11nkTIqTjKIkXeCqBMCbs0FEWXXxjlUCzbebmRStOZN96XSIb06khtY00b1DhThx50EFVqF920OSrYj8YZZV6tVoO28QlL4EDj%2FaYVCWYv4QkjbUSHVq4xCCNV9kFAk7exdbe&Expires=1759035631"
+        },
+        {
+            "source_url": "https://wizeline.atlassian.net/wiki/download/thumbnails/5029921190/Screenshot%202025-05-28%20at%2012.00.23.png?version=1&modificationDate=1748408442990&cacheVersion=1&api=v2&width=156&height=279",
+            "s3_key": "ddh-media-uploads/bbfbb8d071_Screenshot%202025-05-28%20at%2012.00.23.png?version=1&modificationDate=1748408442990&cacheVersion=1&api=v2&width=156&height=279",
+            "presigned_url": "https://ddh-aws-lambda-crawler.s3.amazonaws.com/ddh-media-uploads/bbfbb8d071_Screenshot%25202025-05-28%2520at%252012.00.23.png%3Fversion%3D1%26modificationDate%3D1748408442990%26cacheVersion%3D1%26api%3Dv2%26width%3D156%26height%3D279?AWSAccessKeyId=ASIA5NSVNDUQLOZ3H2OS&Signature=SfX5vf1nplnpuzaHJFeCqujVsHI%3D&x-amz-security-token=IQoJb3JpZ2luX2VjECwaDmFwLXNvdXRoZWFzdC0yIkgwRgIhAMVg0q6jlHEq%2BkLLKZsQtHo%2FpAJMbtqO5l%2Ba%2B4p78mLBAiEAn9ODZh1y3rvfo3B6A4sS55l7TIPXp4pkDjHZIqF2bNoqhgMItf%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FARAAGgw5MjI1MjMzNDQxNjAiDBH%2B3UO7S%2F%2FY6uxqNSraAqZA5gECJtd7zamZu6%2BVQXsc0mmSWbcc4OEN4Ndw%2F3OiNI7vAqwZdKg7PbHzljhs%2B39AonjgSO5CJTQp3csAGe5OAvdfC5P9d7dfCJv4LkhqMVfKHdCcUFPf1PJubqMU4alvt9ubehgm6jqj3Rb1zaA8cOJoXGzW3gy2p7i%2BHtAq28%2Bok%2BWfdmcI0G%2FeZRQnxJpr7QR8NnAKaMxW3ADAGPCP9YTN9btDrmVaeBAP6Q%2BCrzr4i6S48Z1leJEKitQGkk4oTCG1CNo%2F9iA0rhGF0hE55H3q2C0LHT64iZoDl%2Fe2RPORqgCtcKmd1l4hYHDR%2BbVSIcX1oLSQxayJYpk7pAmVIXIGTgkx0eL8XvRm3YsXQs88U%2BAj74oQ2%2FINzQt1FnzZd1WNJGQH7LsqIKSCcuR3RyZyUN3frsA%2FgRYFcefK3BRjblks7Fie3D9TKcclnoaA1F3CgI0FMb0w1OXixgY6nQFMD2QfjsSSIzL2gOzwRjuEI300%2BsrRS4Yjm9ebE%2F6qIUBxufm%2BnYQILw7RNHWdAcF3ibGnh0B8agt11nkTIqTjKIkXeCqBMCbs0FEWXXxjlUCzbebmRStOZN96XSIb06khtY00b1DhThx50EFVqF920OSrYj8YZZV6tVoO28QlL4EDj%2FaYVCWYv4QkjbUSHVq4xCCNV9kFAk7exdbe&Expires=1759035631"
+        }
+    ],
+    "summary": {
+        "result": {
+            "tokenCount": 73,
+            "outputText": "- The text describes the architecture and workflow of a media processing pipeline. It involves various AWS services such as Step Functions, Lambda functions, DynamoDB, S3, and MediaInfo. The pipeline processes media files, adds captions, and creates different video formats. It also includes error handling and deployment steps using tools like CloudFormation and AWS CodeDeploy.",
+            "completionReason": "FINISH",
+            "outputTextArray": [
+                "- The text describes the architecture and workflow of a media processing pipeline. It involves various AWS services such as Step Functions, Lambda functions, DynamoDB, S3, and MediaInfo. The pipeline processes media files, adds captions, and creates different video formats. It also includes error handling and deployment steps using tools like CloudFormation and AWS CodeDeploy."
+            ]
+        },
+        "model_used": "amazon.titan-text-express-v1"
+    }
+}
+/*
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://wizeline.atlassian.net/wiki/spaces/VS/pages/4589223950/Technical+Overview", "full": true}' \
+  https://fw1yarpl2c.execute-api.ap-southeast-2.amazonaws.com/Prod/crawl
+*/
+// curl -X POST \
+//   -H "Content-Type: application/json" \
+//   -d '{"url":"https://wizeline.atlassian.net/wiki/spaces/VS/pages/5029921190/Article+to+Video", "full": true}' \
+//   https://fw1yarpl2c.execute-api.ap-southeast-2.amazonaws.com/Prod/crawl

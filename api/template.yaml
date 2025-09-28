@@ -1,0 +1,43 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: FastAPI on Lambda with Bedrock + Secrets
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        BEDROCK_REGION: us-east-1
+
+Resources:
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: app.main.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        # Bedrock Runtime
+        - Statement:
+            Effect: Allow
+            Action:
+              - bedrock:*
+            Resource: "*"
+        # Secrets Manager:
+        - Statement:
+            Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource: "arn:aws:secretsmanager:us-east-1:922523344160:secret:*"
+      Events:
+        Http:
+          Type: HttpApi
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+
+Outputs:
+  ApiEndpoint:
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
