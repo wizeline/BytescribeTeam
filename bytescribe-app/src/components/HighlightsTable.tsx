@@ -30,7 +30,7 @@ const schema = yup
               .string()
               .max(128, "Highlight text can't be longer than 128 characters")
               .required("Highlights is required"),
-            image: yup.string(),
+            image: yup.string().required(),
           })
           .required(),
       )
@@ -49,7 +49,7 @@ export default function HighlightsTable() {
   const [rowData, setRowData] = useState((highlights || []).map(({ text, image }, id) => ({
     order: id,
     text: text,
-    image: image?.src || "",
+    image: image?.src || placeHolderImg,
   })));
 
   const [loading, setLoading] = useState(false);
@@ -84,49 +84,6 @@ export default function HighlightsTable() {
     );
     update(fieldIndex, newRowValue);
     trigger();
-  };
-
-  const apiUrl = process.env.NEXT_PUBLIC_ELEVENLABS_API;
-
-  const onSubmit = async (data) => {
-    console.log(data)
-    const payload = data;
-    fetch(apiUrl!, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    })
-    .then(async (response) => {
-      if (!response.ok) {
-        throw new Error(`Request failed with ${response.status}`);
-      }
-
-      const data = await response.json();
-      const highlights = (
-        data.summary.result.outputTextArray as string[]
-      ).map((value, i) => {
-        return {
-          text: value,
-          image: data.images[i],
-        };
-      });
-      console.log(highlights);
-      setSummary({
-        title: data.title,
-        highlights: highlights,
-      });
-
-      router.push("editing");
-    })
-    .catch((err) => {
-      console.error(err);
-      alert(`Error sending URL: ${err.message || err}`);
-    })
-    .finally(() => {
-      setLoading(false);
-    });
   };
 
   const columns: GridColDef<(typeof rowData)[number]>[] = useMemo(
@@ -209,10 +166,39 @@ export default function HighlightsTable() {
 
   const router = useRouter();
 
-  if (!apiUrl) {
-    alert("Lambda API URL not configured. Set NEXT_PUBLIC_CRAWLER_API.");
-    return;
-  }
+  const apiUrl = process.env.NEXT_PUBLIC_ELEVENLABS_API;
+
+  const onSubmit = async (data: { items: typeof rowData }) => {
+    if (!apiUrl) {
+      alert("Lambda API URL not configured. Set NEXT_PUBLIC_ELEVENLABS_API.");
+      return;
+    }
+
+    setLoading(true);
+
+    fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ highlights: data.items }),
+    })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`Request failed with ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log(data);
+    })
+    .catch((err) => {
+      console.error(err);
+      alert(`Error sending URL: ${err.message || err}`);
+    })
+    .finally(() => {
+      setLoading(false);
+    });
+  };
 
   if (!highlights) {
     alert("No data found. Go back and try again");

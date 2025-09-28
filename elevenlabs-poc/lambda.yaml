@@ -43,5 +43,11 @@ Resources:
       RecursiveLoop: Terminate
       SnapStart:
         ApplyOn: None
+      Events:
+        Api1:
+          Type: Api
+          Properties:
+            Path: /
+            Method: POST
       RuntimeManagementConfig:
         UpdateRuntimeOn: Auto
