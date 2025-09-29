@@ -56,7 +56,7 @@ def summarize_and_select_images(article_text: str, images_json: list[dict]):
 
     body = {
         "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 1200,
+        "max_tokens": 8192,
         "temperature": 0.2,
         "messages": [
             {"role": "user", "content": prompt}
