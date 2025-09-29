@@ -55,11 +55,10 @@ __pycache__/
 
 lambda_package/
 
-build/
-
 # Python
 __pycache__/
 
 .vscode/settings.json
 
 **/.venv*/
+_*

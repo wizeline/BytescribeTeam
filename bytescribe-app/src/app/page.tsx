@@ -14,7 +14,6 @@ export default function Home() {
           priority
         />
         <ol>
-          4321
           <li>
             Get started by editing <code>src/app/page.tsx</code>.
           </li>
