@@ -23,7 +23,10 @@ Resources:
         Size: 512
       Environment:
         Variables:
+          DESTINATION_BUCKET: bytescribe-image-audio-bucket
           ELEVENLABS_API_KEY: sk_e1cb732d732a91de5627e25c6e30f79953884e306c270324
+          ELEVENLABS_MODEL_ID: eleven_v3
+          ELEVENLABS_VOICE_ID: Xb7hH8MSUJpSbSDYk0k2
       EventInvokeConfig:
         MaximumEventAgeInSeconds: 21600
         MaximumRetryAttempts: 2
@@ -39,7 +42,7 @@ Resources:
             - Effect: Allow
               Action:
                 - s3:PutObject
-              Resource: arn:aws:s3:::adien-apac-practice-bucket/*
+              Resource: arn:aws:s3:::*/*
       RecursiveLoop: Terminate
       SnapStart:
         ApplyOn: None

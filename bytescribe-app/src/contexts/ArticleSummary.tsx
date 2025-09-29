@@ -1,6 +1,7 @@
 import { createContext } from "react";
 
 export type ArticleSummary = {
+  id?: string;
   title?: string;
   highlights?: {
     text: string;

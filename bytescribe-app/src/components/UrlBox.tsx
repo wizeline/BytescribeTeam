@@ -24,7 +24,7 @@ export default function UrlBox(props: BoxProps) {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  const { summary, setSummary } = useContext(ArticleSummaryContext);
+  const { setSummary } = useContext(ArticleSummaryContext);
 
   const onSubmit = (data: { urlPath: string }) => {
     const { urlPath } = data;
@@ -52,21 +52,22 @@ export default function UrlBox(props: BoxProps) {
         }
 
         const data = await response.json();
-        const highlights = (
-          data.summary.result.outputTextArray as string[]
-        ).map((value, i) => {
-          return {
+        const highlights = [];
+
+        highlights.push({ text: data.title });
+        (data.summary.result.outputTextArray as string[]).map((value, i) => {
+          highlights.push({
             text: value,
             image: data.images[i],
-          };
+          });
         });
-        console.log(highlights);
+
         setSummary({
           title: data.title,
           highlights: highlights,
         });
 
-        router.push("editing");
+        router.push("adjust");
       })
       .catch((err) => {
         console.error(err);
@@ -80,16 +81,19 @@ export default function UrlBox(props: BoxProps) {
   return (
     <>
       <form onSubmit={handleSubmit(onSubmit)}>
-        <Box 
+        <Box
           display={"flex"}
           flexDirection={"column"}
           gap={2}
-          justifyContent={"center"} {...props}>
-          <Box
-          display={"flex"}
-          gap={2}
           justifyContent={"center"}
-          alignItems={"center"}>
+          {...props}
+        >
+          <Box
+            display={"flex"}
+            gap={2}
+            justifyContent={"center"}
+            alignItems={"center"}
+          >
             <Box>
               <InputLabel htmlFor="input-url">URL: </InputLabel>
             </Box>
@@ -125,7 +129,14 @@ export default function UrlBox(props: BoxProps) {
               }}
             />
           </Box>
-          <Button variant="contained" type="submit" disabled={loading} sx={{ alignSelf: "end" }}>Go</Button>
+          <Button
+            variant="contained"
+            type="submit"
+            disabled={loading}
+            sx={{ alignSelf: "end" }}
+          >
+            Go
+          </Button>
         </Box>
       </form>
       <Backdrop open={loading}>
