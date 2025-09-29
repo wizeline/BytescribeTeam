@@ -128,8 +128,33 @@ def parse_html(html: str, max_snippet_chars: Optional[int] = None, full_text: bo
             max_snippet_chars = 400
     
     soup = BeautifulSoup(html, "html.parser")
+    # Prefer the head <title> tag when present. If it's missing or empty,
+    # fall back to common article header used by some sites (e.g. Confluence)
+    # which places the title in an <h1 id="heading-title-text">.
     title_tag = soup.find("title")
     title = title_tag.get_text(strip=True) if title_tag else ""
+
+    if not title:
+        # Look for an H1 with the known id used by some rendering systems
+        h1 = soup.find("h1", {"id": "heading-title-text"})
+        if h1:
+            title = h1.get_text(strip=True)
+
+    # Additional fallbacks: Open Graph / Twitter meta tags, then the first H1
+    if not title:
+        og = soup.find("meta", attrs={"property": "og:title"})
+        if og and og.get("content"):
+            title = og.get("content").strip()
+
+    if not title:
+        tw = soup.find("meta", attrs={"name": "twitter:title"})
+        if tw and tw.get("content"):
+            title = tw.get("content").strip()
+
+    if not title:
+        first_h1 = soup.find("h1")
+        if first_h1:
+            title = first_h1.get_text(strip=True)
 
     # Extract visible text from body and return either the full text or a short snippet
     body = soup.find("body")

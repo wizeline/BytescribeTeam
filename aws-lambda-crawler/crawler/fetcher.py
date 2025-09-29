@@ -85,6 +85,15 @@ def fetch_html(url: str, timeout: int = 10, max_retries: int = 2, backoff: float
             resp.raise_for_status()
             data = resp.json()
             html = data.get("body", {}).get("view", {}).get("value")
+            page_title = data.get("title")
+            # If the REST API returned an HTML fragment (no <title>) but the
+            # JSON includes a page title, synthesize a minimal HTML wrapper so
+            # the parser can extract the title reliably.
+            if html and page_title:
+                # If the fragment already contains a title tag, return as-is
+                if "<title" not in html.lower():
+                    wrapped = f"<html><head><title>{page_title}</title></head><body>{html}</body></html>"
+                    return wrapped
             return html
         except RequestException as e:
             # debug: surface status code for local troubleshooting
@@ -108,7 +117,13 @@ def fetch_html(url: str, timeout: int = 10, max_retries: int = 2, backoff: float
             try:
                 data = resp.json()
                 html = data.get("body", {}).get("view", {}).get("value")
+                page_title = data.get("title")
                 if html:
+                    # If fragment has no <title> but JSON provides a title,
+                    # wrap so the parser can extract it.
+                    if page_title and "<title" not in html.lower():
+                        wrapped = f"<html><head><title>{page_title}</title></head><body>{html}</body></html>"
+                        return wrapped
                     return html
             except Exception:
                 # not JSON or missing view -> return raw text
