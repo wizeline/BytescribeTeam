@@ -51,7 +51,7 @@ def move_s3_object(bucket, old_key, new_key):
         print(f"WARNING: Failed to archive object {old_key}. Error: {e}")
 
 
-# --- CORE FUNCTION: COMBINE VIDEOS (FIXED FOR STABILITY) ---
+# --- CORE FUNCTION: COMBINE VIDEOS ---
 
 
 def combine_videos(video_paths: list, final_output_path: str):
@@ -65,7 +65,7 @@ def combine_videos(video_paths: list, final_output_path: str):
         print("No videos to combine. Skipping final step.")
         return
 
-    # --- CRITICAL FIX: RE-INJECT ENVIRONMENT OVERRIDES ---
+    # --- RE-INJECT ENVIRONMENT OVERRIDES ---
     os.environ["TMPDIR"] = tmp_dir
     os.environ["TEMP"] = tmp_dir
     os.environ["TMP"] = tmp_dir
@@ -79,7 +79,7 @@ def combine_videos(video_paths: list, final_output_path: str):
         # Load all clips from the list of paths with error handling
         for path in video_paths:
             try:
-                # CRITICAL: Attempt to load the intermediate clip
+                # Attempt to load the intermediate clip
                 clip = VideoFileClip(path)
                 clips.append(clip)
             except Exception as e:
@@ -119,7 +119,7 @@ def combine_videos(video_paths: list, final_output_path: str):
             final_clip.close()
 
 
-# --- CORE FUNCTION: CREATE VIDEO (WITH DIRECT DURATION ASSIGNMENT FIX) ---
+# --- CORE FUNCTION: CREATE VIDEO (WITH DIRECT DURATION ASSIGNMENT) ---
 
 
 def create_video_from_images_and_audio(
@@ -133,7 +133,7 @@ def create_video_from_images_and_audio(
         print(f"Error: The specified audio file '{audio_path}' does not exist.")
         return False
 
-    # --- IMAGE SELECTION LOGIC (Unchanged) ---
+    # --- IMAGE SELECTION LOGIC ---
     local_image_files = [
         os.path.join(image_folder, img)
         for img in os.listdir(image_folder)
@@ -182,7 +182,7 @@ def create_video_from_images_and_audio(
         audio_clip = AudioFileClip(audio_path)
         audio_duration = audio_clip.duration
 
-        # --- CRITICAL PADDING LOGIC (FIXED) ---
+        # --- PADDING LOGIC ---
         MIN_ENCODE_DURATION = 1.0
 
         if audio_duration < MIN_ENCODE_DURATION:
@@ -207,7 +207,7 @@ def create_video_from_images_and_audio(
         # Assign concatenation result first.
         video_clip = concatenate_videoclips(clips, method="compose")
 
-        # CRITICAL FIX: Assign duration directly to the attribute to bypass unsupported method.
+        # Assign duration directly to the attribute to bypass unsupported method.
         video_clip.duration = video_segment_duration
 
         # Step 4: Set the audio.
@@ -235,21 +235,13 @@ def create_video_from_images_and_audio(
                 clip.close()
 
 
-# --- UTILITY FUNCTION: URL DOWNLOAD (Unused) ---
-
-
-def download_file_from_url(url: str, local_path: str) -> bool:
-    """Downloads a file from a URL to a local path. (Not used in the handler now)"""
-    return False
-
-
-# --- FINAL LAMBDA HANDLER (Unchanged Orchestration and Archival Logic) ---
+# --- FINAL LAMBDA HANDLER ---
 
 
 def lambda_handler(event, context):
     print("Received event:", event)
 
-    # --- CRITICAL FIX: FFmpeg Binary Setup ---
+    # --- FFmpeg Binary Setup ---
     try:
         ffmpeg_source = "/var/task/ffmpeg"
         ffmpeg_dest = os.path.join(tmp_dir, "ffmpeg")
@@ -259,6 +251,9 @@ def lambda_handler(event, context):
     except Exception as e:
         print(f"FATAL: Failed to copy or set permissions for FFmpeg: {e}")
         raise
+
+    # Store a variable for the compilation ID, initialized to a fallback value
+    compilation_id = datetime.now().strftime("%Y%m%d%H%M%S")
 
     try:
         # 1. Determine Bucket and Key (Assuming S3 trigger on highlights.json)
@@ -273,7 +268,12 @@ def lambda_handler(event, context):
         s3_client.download_file(bucket, json_key, local_json_path)
 
         with open(local_json_path, "r") as f:
-            highlights_data = json.load(f)
+            full_manifest = json.load(f)
+
+        # --- EXTRACT ID FOR FILENAME ---
+        compilation_id = full_manifest.get("id", compilation_id)
+        highlights_data = full_manifest.get("highlights", [])
+        # ------------------------------------------
 
         # 3. Sort the data by 'order' field
         highlights_data.sort(key=lambda x: x.get("order", 9999))
@@ -331,8 +331,8 @@ def lambda_handler(event, context):
 
         # 5. Combine all videos and upload the final result
         if local_videos_to_combine:
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            final_output_file_name = f"final_compilation_{timestamp}.mp4"
+            # --- UPDATED FILENAME HERE ---
+            final_output_file_name = f"{compilation_id}.mp4"
             final_output_file = os.path.join(tmp_dir, final_output_file_name)
 
             combine_videos(local_videos_to_combine, final_output_file)
@@ -346,17 +346,19 @@ def lambda_handler(event, context):
             # 6. ARCHIVAL STEP: Move source audio and JSON manifest
             # ----------------------------------------------------------------
 
-            archive_folder = f"{ARCHIVE_PREFIX}{timestamp}/"
+            # Use the ID in the archive path for better traceability
+            archive_folder = f"{ARCHIVE_PREFIX}{compilation_id}/"
 
             # A. Archive the JSON manifest file (e.g., highlights.json)
             print(f"\nArchiving JSON manifest {json_key}...")
-            new_json_key = os.path.join(archive_folder, os.path.basename(json_key))
+            # We add the timestamp to the archived JSON name for safety against reprocessing the same ID
+            archive_json_name = f"{os.path.basename(json_key).replace('.json', '')}_{datetime.now().strftime('%Y%m%d%H%M%S')}.json"
+            new_json_key = os.path.join(archive_folder, archive_json_name)
             move_s3_object(bucket, json_key, new_json_key)
 
             # B. Archive the successful audio files, preserving sub-folder structure
             print("\nArchiving source audio files...")
             for old_key in successful_audio_keys:
-                # The new key is the archive folder + the full original key path
                 new_key = os.path.join(archive_folder, old_key)
                 move_s3_object(bucket, old_key, new_key)
 
@@ -375,7 +377,7 @@ def lambda_handler(event, context):
 
             return {
                 "statusCode": 200,
-                "body": "Video compilation created, uploaded, and source files archived successfully.",
+                "body": f"Video compilation {compilation_id} created and archived successfully.",
             }
         else:
             return {
