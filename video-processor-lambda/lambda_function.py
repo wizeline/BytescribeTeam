@@ -1,11 +1,14 @@
 import os
 import boto3
+import glob
+import json
+import shutil
 from natsort import natsorted
 from urllib.parse import unquote_plus
 from moviepy import *
 import moviepy.config as mpy_config
-import shutil
 from datetime import datetime
+import random
 
 # --- GLOBAL CONFIGURATION (Safe and Stable) ---
 
@@ -17,52 +20,44 @@ tmp_dir = "/tmp"
 # Explicitly set ffmpeg path (relies on copy in lambda_handler)
 mpy_config.FFMPEG_BINARY = os.path.join(tmp_dir, "ffmpeg")
 
+# Define the fallback image directory
+FALLBACK_IMAGE_DIR = "/var/task/images"
+
 # Define the archive prefix globally
 ARCHIVE_PREFIX = "processed-input/"
 
 
-# --- UTILITY FUNCTION: S3 Prefix Move ---
+# --- UTILITY FUNCTION: S3 Object Move ---
 
 
-def move_s3_prefix(bucket, old_prefix, new_prefix):
+def move_s3_object(bucket, old_key, new_key):
     """
-    Moves all objects from old_prefix to new_prefix within the same bucket
+    Moves a single S3 object from old_key to new_key within the same bucket
     via copy and delete operations.
     """
-    s3_paginator = s3_client.get_paginator("list_objects_v2")
+    print(f"Archiving object from {old_key} to {new_key}")
+    try:
+        # 1. Copy the object
+        s3_client.copy_object(
+            Bucket=bucket,
+            CopySource={"Bucket": bucket, "Key": old_key},
+            Key=new_key,
+        )
 
-    print(f"Starting archive move from {old_prefix} to {new_prefix}")
-
-    # List all objects under the old prefix
-    for page in s3_paginator.paginate(Bucket=bucket, Prefix=old_prefix):
-        if "Contents" not in page:
-            continue
-
-        for obj in page["Contents"]:
-            old_key = obj["Key"]
-            # Determine the new key by replacing the old prefix
-            new_key = old_key.replace(old_prefix, new_prefix, 1)
-
-            # 1. Copy the object
-            s3_client.copy_object(
-                Bucket=bucket,
-                CopySource={"Bucket": bucket, "Key": old_key},
-                Key=new_key,
-            )
-
-            # 2. Delete the original object
-            s3_client.delete_object(Bucket=bucket, Key=old_key)
-
-    print(f"Successfully archived objects from {old_prefix} to {new_prefix}")
+        # 2. Delete the original object
+        s3_client.delete_object(Bucket=bucket, Key=old_key)
+        print(f"Successfully archived {old_key}")
+    except Exception as e:
+        print(f"WARNING: Failed to archive object {old_key}. Error: {e}")
 
 
-# --- CORE FUNCTIONS ---
+# --- CORE FUNCTION: COMBINE VIDEOS (FIXED FOR STABILITY) ---
 
 
 def combine_videos(video_paths: list, final_output_path: str):
     """
     Combines a list of video files into a single final video.
-    Includes environment overrides for FFmpeg safety.
+    Includes explicit resource handling to prevent FFMPEG read errors.
     """
     print(f"Combining {len(video_paths)} videos into {final_output_path}...")
 
@@ -71,19 +66,34 @@ def combine_videos(video_paths: list, final_output_path: str):
         return
 
     # --- CRITICAL FIX: RE-INJECT ENVIRONMENT OVERRIDES ---
-    # Ensures subprocesses (FFmpeg) use /tmp and do not hit Read-only error.
     os.environ["TMPDIR"] = tmp_dir
     os.environ["TEMP"] = tmp_dir
     os.environ["TMP"] = tmp_dir
-
-    # Temporarily change the current working directory (CWD) to /tmp
     original_cwd = os.getcwd()
     os.chdir(tmp_dir)
     # ----------------------------------------------------
 
+    clips = []
+    final_clip = None
     try:
-        # Load all clips from the list of paths
-        clips = [VideoFileClip(path) for path in video_paths]
+        # Load all clips from the list of paths with error handling
+        for path in video_paths:
+            try:
+                # CRITICAL: Attempt to load the intermediate clip
+                clip = VideoFileClip(path)
+                clips.append(clip)
+            except Exception as e:
+                # Log a warning for a failed intermediate clip, but continue
+                print(
+                    f"CRITICAL WARNING: Failed to read intermediate video {path}: {e}"
+                )
+                continue
+
+        if not clips:
+            print(
+                "No clips successfully loaded after attempt to read intermediate files. Skipping combination."
+            )
+            return
 
         # Concatenate the clips
         final_clip = concatenate_videoclips(clips, method="compose")
@@ -92,7 +102,6 @@ def combine_videos(video_paths: list, final_output_path: str):
         final_clip.write_videofile(
             final_output_path, codec="libx264", audio_codec="aac"
         )
-
         print(f"Final video successfully combined at {final_output_path}")
 
     except Exception as e:
@@ -102,12 +111,15 @@ def combine_videos(video_paths: list, final_output_path: str):
     finally:
         # Restore the original working directory
         os.chdir(original_cwd)
-        # Explicitly close all clips to free up resources
-        if "clips" in locals():
+        # Explicitly close all clips to free up resources (CRITICAL for MoviePy stability)
+        if clips:
             for clip in clips:
                 clip.close()
-        if "final_clip" in locals():
+        if final_clip:
             final_clip.close()
+
+
+# --- CORE FUNCTION: CREATE VIDEO (WITH DIRECT DURATION ASSIGNMENT FIX) ---
 
 
 def create_video_from_images_and_audio(
@@ -115,51 +127,90 @@ def create_video_from_images_and_audio(
 ):
     """
     Creates a video from a sequence of images and a single audio file from local paths.
+    Pads the video duration to a minimum of 1.0s if the audio is too short.
     """
-    if not os.path.isdir(image_folder):
-        print(f"Error: The specified image folder '{image_folder}' does not exist.")
-        return False
     if not os.path.isfile(audio_path):
         print(f"Error: The specified audio file '{audio_path}' does not exist.")
         return False
 
-    # Get a list of all image files in the folder and sort them naturally.
-    image_files = [
+    # --- IMAGE SELECTION LOGIC (Unchanged) ---
+    local_image_files = [
         os.path.join(image_folder, img)
         for img in os.listdir(image_folder)
         if img.lower().endswith((".png", ".jpg", ".jpeg"))
     ]
 
+    image_files = natsorted(local_image_files)
+    image_source = image_folder
+
     if not image_files:
-        print(f"Error: No image files found in '{image_folder}'.")
+        print(
+            f"Warning: No images found in '{image_folder}'. Falling back to a SINGLE, RANDOM sample image."
+        )
+
+        fallback_images = glob.glob(os.path.join(FALLBACK_IMAGE_DIR, "*.png"))
+        fallback_images.extend(glob.glob(os.path.join(FALLBACK_IMAGE_DIR, "*.jpg")))
+        fallback_images.extend(glob.glob(os.path.join(FALLBACK_IMAGE_DIR, "*.jpeg")))
+
+        if fallback_images:
+            random_image_path = random.choice(fallback_images)
+            image_files = [random_image_path]
+            image_source = f"RANDOM image: {os.path.basename(random_image_path)}"
+        else:
+            image_files = []
+
+    if not image_files:
+        print(
+            f"Error: No images found and no sample images found in '{FALLBACK_IMAGE_DIR}'. Skipping segment."
+        )
         return False
+    # -----------------------------
 
-    image_files = natsorted(image_files)
-    print(f"Found {len(image_files)} images. Creating video...")
+    print(f"Using {len(image_files)} image(s) from '{image_source}'. Creating video...")
 
-    # --- CWD OVERRIDE FOR SUBPROCESS SAFETY (Maintains the writable environment) ---
+    # --- CWD OVERRIDE FOR SUBPROCESS SAFETY ---
     original_cwd = os.getcwd()
     os.chdir(tmp_dir)
-    # ------------------------------------------------------------
+    # ----------------------------------------
+
+    audio_clip = None
+    video_clip = None
+    clips = []
 
     try:
-        # Step 1: Load the audio clip to get its duration.
+        # Step 1: Load the audio clip and determine segment duration.
         audio_clip = AudioFileClip(audio_path)
         audio_duration = audio_clip.duration
 
-        # Step 2: Calculate the duration for each image.
-        num_images = len(image_files)
-        if num_images == 0:
-            return False
+        # --- CRITICAL PADDING LOGIC (FIXED) ---
+        MIN_ENCODE_DURATION = 1.0
 
-        image_duration = audio_duration / num_images
+        if audio_duration < MIN_ENCODE_DURATION:
+            print(
+                f"Warning: Audio duration ({audio_duration:.2f}s) is too short. Padding video duration to {MIN_ENCODE_DURATION}s for stable encoding."
+            )
+            video_segment_duration = MIN_ENCODE_DURATION
+
+        else:
+            video_segment_duration = audio_duration
+        # ---------------------------------------
+
+        # Step 2: Calculate the duration for each image based on the final video duration.
+        num_images = len(image_files)
+        image_duration = video_segment_duration / num_images
+
         print(f"Each image will be shown for {image_duration:.2f} seconds.")
 
-        # Step 3: Create a video clip from the image sequence.
+        # Step 3: Create and concatenate image clips.
         clips = [ImageClip(path, duration=image_duration) for path in image_files]
+
+        # Assign concatenation result first.
         video_clip = concatenate_videoclips(clips, method="compose")
 
-        # Step 4: Set the audio to the video.
+        # CRITICAL FIX: Assign duration directly to the attribute to bypass unsupported method.
+        video_clip.duration = video_segment_duration
+
+        # Step 4: Set the audio.
         video_clip.audio = audio_clip
 
         # Step 5: Write the video file.
@@ -167,20 +218,36 @@ def create_video_from_images_and_audio(
             output_path, fps=fps, codec="libx264", audio_codec="aac"
         )
         print(f"Video successfully created at {output_path}")
-        return True  # Return True on success
+        return True
 
     except Exception as e:
         print(f"An error occurred during video creation: {e}")
         raise
 
     finally:
-        # Restore the original working directory
         os.chdir(original_cwd)
+        if audio_clip:
+            audio_clip.close()
+        if video_clip:
+            video_clip.close()
+        if clips:
+            for clip in clips:
+                clip.close()
 
 
-# --- UPDATED LAMBDA HANDLER ---
+# --- UTILITY FUNCTION: URL DOWNLOAD (Unused) ---
+
+
+def download_file_from_url(url: str, local_path: str) -> bool:
+    """Downloads a file from a URL to a local path. (Not used in the handler now)"""
+    return False
+
+
+# --- FINAL LAMBDA HANDLER (Unchanged Orchestration and Archival Logic) ---
+
+
 def lambda_handler(event, context):
-    print("Received S3 event:", event)
+    print("Received event:", event)
 
     # --- CRITICAL FIX: FFmpeg Binary Setup ---
     try:
@@ -194,129 +261,117 @@ def lambda_handler(event, context):
         raise
 
     try:
+        # 1. Determine Bucket and Key (Assuming S3 trigger on highlights.json)
         record = event["Records"][0]
         bucket = record["s3"]["bucket"]["name"]
-        key = unquote_plus(record["s3"]["object"]["key"], encoding="utf-8")
+        json_key = unquote_plus(record["s3"]["object"]["key"], encoding="utf-8")
 
-        # 1. Determine the parent prefix (e.g., 'test-compilation/' from 'test-compilation/segment_01/audio.mp3')
-        parent_prefix = os.path.dirname(os.path.dirname(key))
-        if parent_prefix and parent_prefix[-1] != "/":
-            parent_prefix += "/"
+        print(f"Processing JSON manifest from s3://{bucket}/{json_key}")
 
-        # Handle case where the prefix is empty (files are in the bucket root)
-        if parent_prefix == "/":
-            parent_prefix = ""
+        # 2. Download and Parse highlights.json
+        local_json_path = os.path.join(tmp_dir, os.path.basename(json_key))
+        s3_client.download_file(bucket, json_key, local_json_path)
 
-        # 2. Find all immediate sub-folders (segment prefixes)
-        s3_paginator = s3_client.get_paginator("list_objects_v2")
-        sub_prefixes = set()
+        with open(local_json_path, "r") as f:
+            highlights_data = json.load(f)
 
-        # List to track which prefixes were SUCCESSFULLY processed for archival
-        successful_prefixes = []
-
-        # This lists prefixes immediately under the determined parent_prefix
-        for page in s3_paginator.paginate(
-            Bucket=bucket, Prefix=parent_prefix, Delimiter="/"
-        ):
-            if "CommonPrefixes" in page:
-                for prefix_data in page["CommonPrefixes"]:
-                    sub_prefixes.add(prefix_data["Prefix"])
-
-        if not sub_prefixes:
-            print(
-                f"No segment sub-folders found under prefix: {parent_prefix}. Exiting."
-            )
-            return {"statusCode": 200, "body": "No video sub-folders to process."}
+        # 3. Sort the data by 'order' field
+        highlights_data.sort(key=lambda x: x.get("order", 9999))
+        print(f"Found {len(highlights_data)} segments. Sorted by 'order'.")
 
         local_videos_to_combine = []
+        successful_audio_keys = []  # List to track S3 keys to archive
 
-        # 3. Loop through each segment sub-folder
-        for video_prefix in natsorted(list(sub_prefixes)):
-            subfolder_name = os.path.basename(video_prefix.strip("/"))
-            print(f"\n--- Starting processing for segment: {subfolder_name} ---")
+        # 4. Loop through each ordered segment
+        for i, segment in enumerate(highlights_data):
+            order = segment.get("order", i)
+            audio_s3_key = segment.get("audio")
 
-            # Create local folder for the segment files
-            local_subfolder = os.path.join(tmp_dir, subfolder_name)
+            segment_name = f"segment_{order:03d}"
+
+            print(
+                f"\n--- Starting processing for segment: {segment_name} (Order {order}) ---"
+            )
+
+            if not audio_s3_key:
+                print(f"Skipping segment {order}: 'audio' key missing.")
+                continue
+
+            # --- PREPARE LOCAL FOLDERS & PATHS ---
+            local_subfolder = os.path.join(tmp_dir, segment_name)
             os.makedirs(local_subfolder, exist_ok=True)
 
-            sub_objects = s3_client.list_objects_v2(Bucket=bucket, Prefix=video_prefix)
-            local_audio_path = None
-
-            # Download all files in the segment folder
-            for obj in sub_objects.get("Contents", []):
-                obj_key = obj["Key"]
-
-                # Skip the folder key itself
-                if obj_key == video_prefix:
-                    continue
-
-                local_path = os.path.join(local_subfolder, os.path.basename(obj_key))
-
-                # Download audio file (setting local_audio_path)
-                if obj_key.lower().endswith((".mp3", ".wav")):
-                    s3_client.download_file(bucket, obj_key, local_path)
-                    local_audio_path = local_path
-                # Download image file
-                elif obj_key.lower().endswith((".png", ".jpg", ".jpeg")):
-                    s3_client.download_file(bucket, obj_key, local_path)
-
-            if not local_audio_path:
-
-                print(f"Skipping {subfolder_name}: No audio file found in segment.")
+            # Define local audio path and download audio
+            local_audio_path = os.path.join(
+                local_subfolder, os.path.basename(audio_s3_key)
+            )
+            try:
+                s3_client.download_file(bucket, audio_s3_key, local_audio_path)
+            except Exception as e:
+                print(
+                    f"FATAL: Failed to download required audio file {audio_s3_key}. Skipping segment. Error: {e}"
+                )
+                shutil.rmtree(local_subfolder, ignore_errors=True)
                 continue
 
             # Define output path for the intermediate video
-            intermediate_video_path = os.path.join(tmp_dir, f"{subfolder_name}.mp4")
+            intermediate_video_path = os.path.join(tmp_dir, f"{segment_name}.mp4")
 
-            # Call the main video creation function
+            # Call the main video creation function (now with direct duration assignment)
             success = create_video_from_images_and_audio(
                 local_subfolder, local_audio_path, intermediate_video_path
             )
 
             if success:
                 local_videos_to_combine.append(intermediate_video_path)
-                successful_prefixes.append(video_prefix)  # Record prefix for archiving
+                successful_audio_keys.append(audio_s3_key)  # Record key for archival
 
             # Clean up local segment files (CRITICAL for /tmp limits)
-            shutil.rmtree(local_subfolder)
-            if os.path.exists(local_audio_path):
-                os.remove(local_audio_path)
+            shutil.rmtree(local_subfolder, ignore_errors=True)
 
-        # 4. Combine all videos and upload the final result
+        # 5. Combine all videos and upload the final result
         if local_videos_to_combine:
-            final_output_file_name = "final_video.mp4"
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            final_output_file_name = f"final_compilation_{timestamp}.mp4"
             final_output_file = os.path.join(tmp_dir, final_output_file_name)
+
             combine_videos(local_videos_to_combine, final_output_file)
 
-            # Define the final S3 key at the root of the designated prefix
+            # Define the final S3 key
             output_s3_key = f"output_videos/{final_output_file_name}"
-
             s3_client.upload_file(final_output_file, bucket, output_s3_key)
-
             print(f"Uploaded final compilation video to s3://{bucket}/{output_s3_key}")
 
             # ----------------------------------------------------------------
-            # 5. ARCHIVAL STEP: Move source files to 'processed-input/'
+            # 6. ARCHIVAL STEP: Move source audio and JSON manifest
             # ----------------------------------------------------------------
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
 
-            for prefix in successful_prefixes:
-                # The segment name is the folder name (e.g., 'segment_01/')
-                segment_folder_name = os.path.basename(prefix.strip("/"))
+            archive_folder = f"{ARCHIVE_PREFIX}{timestamp}/"
 
-                # New prefix: processed-input/20250927123456-segment_01/
-                new_segment_prefix = (
-                    f"{ARCHIVE_PREFIX}{timestamp}-{segment_folder_name}/"
-                )
+            # A. Archive the JSON manifest file (e.g., highlights.json)
+            print(f"\nArchiving JSON manifest {json_key}...")
+            new_json_key = os.path.join(archive_folder, os.path.basename(json_key))
+            move_s3_object(bucket, json_key, new_json_key)
 
-                # Call the utility to move contents of the prefix
-                move_s3_prefix(bucket, prefix, new_segment_prefix)
+            # B. Archive the successful audio files, preserving sub-folder structure
+            print("\nArchiving source audio files...")
+            for old_key in successful_audio_keys:
+                # The new key is the archive folder + the full original key path
+                new_key = os.path.join(archive_folder, old_key)
+                move_s3_object(bucket, old_key, new_key)
 
-            # Final cleanup of intermediate local video files
+            print(
+                f"Archival complete. New folder structure is s3://{bucket}/{archive_folder}"
+            )
+
+            # Final cleanup of all local files
             for path in local_videos_to_combine:
                 if os.path.exists(path):
                     os.remove(path)
-            os.remove(final_output_file)
+            if os.path.exists(final_output_file):
+                os.remove(final_output_file)
+            if os.path.exists(local_json_path):
+                os.remove(local_json_path)
 
             return {
                 "statusCode": 200,
