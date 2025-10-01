@@ -200,3 +200,152 @@ def initialize():
 
 
 initialize()
+
+
+def summarize_and_select_images(article_text: str, images_json: list[dict], model_id: str = None, text_config: dict = None):
+    """
+    Summarize article into 3 bullets and select up to 3 matching images per bullet.
+
+    Returns a list of bullet objects (may be empty on failure).
+    """
+    try:
+        prompt = f"""You are given a long article and a list of candidate images (each includes title, caption/tags, and an S3 URL).
+        Tasks:
+        1) Produce 3 main bullet points summarizing the core ideas of the article (≤60 words each, no overlap).
+        2) For each bullet point, select at most three best-matching images from the provided list.
+        3) If there is no any suitable images, return empty images and not invent images.
+        4) Return a valid JSON object with this schema:
+        {{
+        "bullets": [
+            {{
+            "text": "<<=60 words>>",
+            "reason": "<<why this image fits, 1 sentence>>",
+            "image_url": "<<a list of suitable provided images in s3 URLs>>"
+            }}
+        ]
+        }}
+
+        Important rules:
+        - Base your image choice ONLY on the provided image titles/captions/tags (no external fetching).
+        - Output JSON only. No markdown. No explanations outside JSON.
+
+        ARTICLE:
+        <<<
+        {article_text}
+        >>>
+
+        IMAGES:
+        <<<
+        {json.dumps(images_json, ensure_ascii=False)}
+        >>>
+    """
+
+        body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 8192,
+            "temperature": 0.2,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ]
+        }
+
+        # allow caller-provided model_id; otherwise use constant
+        try_models = []
+        if model_id:
+            try_models.append(model_id)
+        try_models.append(BEDROCK_MODEL_ANTHROPIC_CLAUDE35)
+
+        last_exc = None
+        for try_model in try_models:
+            try:
+                res = bedrock_client.invoke_model(
+                    modelId=try_model,
+                    contentType="application/json",
+                    accept="application/json",
+                    body=json.dumps(body)
+                )
+                out = json.loads(res["body"].read())
+                break
+            except ClientError as ex:
+                last_exc = ex
+                # If validation mentions inference profile, try to discover accessible models
+                msg = str(ex)
+                if "inference profile" in msg or "Invocation of model ID" in msg:
+                    try:
+                        accessible = []
+                        try:
+                            accessible = check_model_access()
+                        except Exception:
+                            accessible = []
+                        # try accessible models not already attempted
+                        for m in accessible:
+                            if m in try_models:
+                                continue
+                            try:
+                                res = bedrock_client.invoke_model(
+                                    modelId=m,
+                                    contentType="application/json",
+                                    accept="application/json",
+                                    body=json.dumps(body)
+                                )
+                                out = json.loads(res["body"].read())
+                                try_model = m
+                                last_exc = None
+                                break
+                            except Exception as inner_ex:
+                                last_exc = inner_ex
+                        if last_exc is None:
+                            break
+                    except Exception:
+                        pass
+                # otherwise continue to next try_model
+                continue
+        else:
+            # if loop completes without break, handle last exception
+            if last_exc:
+                # If this was a validation about inference profiles, return a structured error
+                try:
+                    err_code = last_exc.response.get('Error', {}).get('Code')
+                    msg = str(last_exc)
+                    if err_code == 'ValidationException' and ('inference profile' in msg or 'Invocation of model ID' in msg):
+                        return {
+                            "error": "ValidationException",
+                            "message": msg,
+                            "help": {
+                                "message": "This model requires invoking via an inference profile or a different model ID/ARN that is enabled for on-demand throughput.",
+                                "instructions": [
+                                    "Check AWS Bedrock Console > Inference profiles and create/enable an inference profile containing the model.",
+                                    "Alternatively, use check_model_access() to see accessible models and select one of those model IDs.",
+                                ]
+                            }
+                        }
+                except Exception:
+                    pass
+                raise last_exc
+        # bedrock may return text in out['content'][0]['text'] as a JSON string
+        content_arr = out.get("content") or []
+        if not content_arr:
+            return []
+
+        text_field = content_arr[0].get("text", "")
+        # Try to parse the text as JSON, but be defensive
+        try:
+            parsed = json.loads(text_field)
+            return parsed.get("bullets", [])
+        except Exception:
+            # If text_field itself isn't JSON, try to extract inline JSON from it
+            try:
+                # find first `{` and last `}`
+                start = text_field.find("{")
+                end = text_field.rfind("}")
+                if start != -1 and end != -1 and end > start:
+                    candidate = text_field[start:end+1]
+                    parsed = json.loads(candidate)
+                    return parsed.get("bullets", [])
+            except Exception:
+                pass
+
+        return []
+    except Exception as ex:
+        logger.error(f"summarize_and_select_images failed: {str(ex)}")
+        return []
