@@ -13,7 +13,10 @@ except Exception as e:
 import os
 import hashlib
 import boto3
+import mimetypes
+from urllib.parse import urlparse, unquote
 from botocore.exceptions import ClientError
+from botocore.config import Config as BotoConfig
 
 
 def _cors_headers():
@@ -178,7 +181,12 @@ def lambda_handler(event, context=None):
                 s3_prefix = os.getenv("S3_UPLOAD_PREFIX", "")
 
                 # Helper to upload bytes to S3 and return an https URL
-                s3_client = boto3.client("s3")
+                # Create the S3 client with explicit SigV4 signing and the
+                # current region so generated presigned URLs include the
+                # correct regional endpoint / signature format.
+                region = os.getenv("REGION") or os.getenv("AWS_DEFAULT_REGION")
+                s3_config = BotoConfig(signature_version="s3v4", region_name=region) if region else BotoConfig(signature_version="s3v4")
+                s3_client = boto3.client("s3", config=s3_config)
 
                 def _upload_to_s3(key: str, data: bytes, content_type: str = None):
                     """Upload bytes to S3 and return a dict with upload_key and presigned_url (or None on failure)."""
@@ -196,6 +204,11 @@ def lambda_handler(event, context=None):
                             Params={"Bucket": s3_bucket, "Key": upload_key},
                             ExpiresIn=expires,
                         )
+                        # Emit a debug line so CloudWatch logs show the key,
+                        # guessed content type and the presigned URL for
+                        # troubleshooting in environments where images do
+                        # not render in the client.
+                        print(f"S3 uploaded: {upload_key} content_type={content_type} presigned={presigned}")
                         return {"upload_key": upload_key, "presigned_url": presigned}
                     except ClientError as exc:
                         print(f"S3 upload or presign failed for {upload_key}: {exc}")
@@ -208,11 +221,18 @@ def lambda_handler(event, context=None):
                     for url_res, data in resources.items():
                         if not data:
                             continue
-                        # Create a stable key name
-                        parsed_name = url_res.split("/")[-1] or "resource"
+                        # Create a stable key name. Use the path portion of the
+                        # source URL (drop query string and fragment) and
+                        # decode percent-encodings. This avoids producing S3
+                        # object keys that contain '?' or '&' which later
+                        # confuse presigned URL generation / usage.
+                        parsed_name = urlparse(url_res).path.split("/")[-1] or "resource"
+                        parsed_name = unquote(parsed_name)
                         sha = hashlib.sha256(url_res.encode("utf-8")).hexdigest()[:10]
                         key = f"{sha}_{parsed_name}"
-                        uploaded = _upload_to_s3(key, data)
+                        # Try to guess a sensible Content-Type for the object
+                        content_type = mimetypes.guess_type(parsed_name)[0]
+                        uploaded = _upload_to_s3(key, data, content_type=content_type)
                         if uploaded:
                             media_refs.append({
                                 "source_url": url_res,
