@@ -45,7 +45,9 @@ def list_foundation_models():
         return fm_models
 
     except ClientError as ex:
-        logger.error(f"Couldn't list foundation models. {ex}")
+        err = ex.response.get('Error', {}) if hasattr(ex, 'response') else {}
+        logger.error(f"Couldn't list foundation models. Code={err.get('Code')} Message={err.get('Message')}")
+        logger.debug("Full ClientError response: %s", getattr(ex, 'response', str(ex)))
         raise
 
 
@@ -85,8 +87,10 @@ def check_model_access():
             logger.info(f"✓ Model {model_id} is accessible")
             
         except ClientError as ex:
-            error_code = ex.response.get('Error', {}).get('Code', 'Unknown')
-            logger.warning(f"✗ Model {model_id} not accessible: {error_code}")
+            err = ex.response.get('Error', {}) if hasattr(ex, 'response') else {}
+            error_code = err.get('Code', 'Unknown')
+            logger.warning(f"✗ Model {model_id} not accessible: {error_code} Message={err.get('Message')}")
+            logger.debug("ClientError response for model %s: %s", model_id, getattr(ex, 'response', str(ex)))
         except Exception as ex:
             logger.warning(f"✗ Model {model_id} test failed: {str(ex)}")
     
@@ -174,8 +178,10 @@ def summarize_page(
             
         except ClientError as ex:
             last_error = ex
-            error_code = ex.response.get('Error', {}).get('Code', 'Unknown')
-            logger.warning(f"Model {try_model} failed with {error_code}: {str(ex)}")
+            err = ex.response.get('Error', {}) if hasattr(ex, 'response') else {}
+            error_code = err.get('Code', 'Unknown')
+            logger.warning(f"Model {try_model} failed with {error_code}: {err.get('Message')} - {str(ex)}")
+            logger.debug("Full ClientError response for model %s: %s", try_model, getattr(ex, 'response', str(ex)))
             
             # If it's an access denied error, try the next model
             if error_code == 'AccessDeniedException':
@@ -240,14 +246,12 @@ def summarize_and_select_images(article_text: str, images_json: list[dict], mode
         >>>
     """
 
-        body = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 8192,
-            "temperature": 0.2,
-            "messages": [
-                {"role": "user", "content": prompt}
-            ]
-        }
+        # We need to construct the request body according to the target model's
+        # expected schema. Anthropic/Claude models accept a `messages` style
+        # request (and optional "anthropic_version"/"max_tokens"), while
+        # Amazon Titan models expect an `inputText` + `textGenerationConfig`.
+        # Build per-model bodies inside the loop so we don't send the wrong
+        # schema and trigger ValidationException (schema violations).
 
         # allow caller-provided model_id; otherwise use constant
         try_models = []
@@ -256,18 +260,58 @@ def summarize_and_select_images(article_text: str, images_json: list[dict], mode
         try_models.append(BEDROCK_MODEL_ANTHROPIC_CLAUDE35)
 
         last_exc = None
+        out = None
         for try_model in try_models:
             try:
+                # Prepare a model-specific request body
+                model_body = None
+                # Merge caller-provided text_config into generated config when present
+                cfg = {}
+                if isinstance(text_config, dict):
+                    cfg = text_config.copy()
+
+                if "anthropic" in (try_model or "") or "claude" in (try_model or ""):
+                    # Anthropic-style schema
+                    model_body = {
+                        "anthropic_version": cfg.get("anthropic_version", "bedrock-2023-05-31"),
+                        "max_tokens": cfg.get("max_tokens") or cfg.get("max_tokens", cfg.get("maxTokenCount", 8192)),
+                        "temperature": cfg.get("temperature", 0.2),
+                        "messages": [
+                            {"role": "user", "content": prompt}
+                        ]
+                    }
+                else:
+                    # Amazon Titan / generic Bedrock text schema
+                    text_gen_cfg = {
+                        "maxTokenCount": cfg.get("maxTokenCount", cfg.get("max_tokens", 8192)),
+                        "temperature": cfg.get("temperature", 0.2)
+                    }
+                    model_body = {
+                        "inputText": prompt,
+                        "textGenerationConfig": text_gen_cfg
+                    }
+
+                # Log a truncated preview of the body to aid debugging schema issues
+                try:
+                    logger.debug(f"Invoking model {try_model} with request body preview: {json.dumps(model_body)[:1000]}")
+                except Exception:
+                    pass
+
                 res = bedrock_client.invoke_model(
                     modelId=try_model,
                     contentType="application/json",
                     accept="application/json",
-                    body=json.dumps(body)
+                    body=json.dumps(model_body)
                 )
                 out = json.loads(res["body"].read())
                 break
             except ClientError as ex:
                 last_exc = ex
+                # Log detailed ClientError info for debugging ValidationExceptions
+                err = ex.response.get('Error', {}) if hasattr(ex, 'response') else {}
+                logger.warning(f"Model {try_model} ClientError: Code={err.get('Code')} Message={err.get('Message')}")
+                logger.debug("Full ClientError response for model %s: %s", try_model, getattr(ex, 'response', str(ex)))
+
                 # If validation mentions inference profile, try to discover accessible models
                 msg = str(ex)
                 if "inference profile" in msg or "Invocation of model ID" in msg:
@@ -282,11 +326,27 @@ def summarize_and_select_images(article_text: str, images_json: list[dict], mode
                             if m in try_models:
                                 continue
                             try:
+                                # Build body for the accessible model as well
+                                model_body = None
+                                if "anthropic" in (m or "") or "claude" in (m or ""):
+                                    model_body = {
+                                        "anthropic_version": (text_config or {}).get("anthropic_version", "bedrock-2023-05-31"),
+                                        "max_tokens": (text_config or {}).get("max_tokens", (text_config or {}).get("maxTokenCount", 8192)),
+                                        "temperature": (text_config or {}).get("temperature", 0.2),
+                                        "messages": [{"role": "user", "content": prompt}]
+                                    }
+                                else:
+                                    text_gen_cfg = {
+                                        "maxTokenCount": (text_config or {}).get("maxTokenCount", (text_config or {}).get("max_tokens", 8192)),
+                                        "temperature": (text_config or {}).get("temperature", 0.2)
+                                    }
+                                    model_body = {"inputText": prompt, "textGenerationConfig": text_gen_cfg}
+
                                 res = bedrock_client.invoke_model(
                                     modelId=m,
                                     contentType="application/json",
                                     accept="application/json",
-                                    body=json.dumps(body)
+                                    body=json.dumps(model_body)
                                 )
                                 out = json.loads(res["body"].read())
                                 try_model = m
@@ -324,10 +384,34 @@ def summarize_and_select_images(article_text: str, images_json: list[dict], mode
                 raise last_exc
         # bedrock may return text in out['content'][0]['text'] as a JSON string
         content_arr = out.get("content") or []
-        if not content_arr:
-            return []
 
-        text_field = content_arr[0].get("text", "")
+        # If no content was returned by the model, try the simpler
+        # summarize_page path as a fallback (this uses the alternate
+        # Titan/text schema and may succeed where the current call failed).
+        if not content_arr:
+            logger.warning("No content returned from model in summarize_and_select_images; attempting summarize_page fallback")
+            try:
+                sp_resp = summarize_page(content_page=article_text, text_config=text_config or {}, model_id=model_id)
+                # sp_resp is typically {"result": {...}, "model_used": ...}
+                if isinstance(sp_resp, dict):
+                    # Try to extract output text from result or top-level
+                    result_obj = sp_resp.get("result") or {}
+                    # result_obj may contain 'outputText' or 'outputTextArray'
+                    if isinstance(result_obj, dict):
+                        text_field = result_obj.get("outputText") or ""
+                    else:
+                        text_field = sp_resp.get("outputText") or ""
+                else:
+                    text_field = ""
+                # If summarize_page returned nothing useful, give up
+                if not text_field:
+                    return []
+            except Exception as sp_ex:
+                logger.warning(f"summarize_page fallback failed: {str(sp_ex)}")
+                return []
+
+        else:
+            text_field = content_arr[0].get("text", "")
         # Try to parse the text as JSON, but be defensive
         try:
             parsed = json.loads(text_field)
