@@ -24,11 +24,15 @@ export default function UrlBox(props: BoxProps) {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  const { summary, setSummary } = useContext(ArticleSummaryContext);
+  const { setSummary } = useContext(ArticleSummaryContext);
 
   const onSubmit = (data: { urlPath: string }) => {
     const { urlPath } = data;
-    const payload = encodeURI(urlPath);
+    const payload = {
+      url: encodeURI(urlPath),
+      full: true,
+      text_config: { temperature: 0.7, maxTokenCount: 2048 },
+    };
 
     const apiUrl = process.env.NEXT_PUBLIC_CRAWLER_API;
 
@@ -44,7 +48,7 @@ export default function UrlBox(props: BoxProps) {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ url: payload }),
+      body: JSON.stringify(payload),
     })
       .then(async (response) => {
         if (!response.ok) {
@@ -52,21 +56,30 @@ export default function UrlBox(props: BoxProps) {
         }
 
         const data = await response.json();
-        const highlights = (
-          data.summary.result.outputTextArray as string[]
-        ).map((value, i) => {
-          return {
+        const highlights = [];
+        const uploaded_media = data.uploaded_media || [];
+
+        const imgList = (data.images as Record<"string", "string">[]).map(
+          (image, id) => ({
+            ...image,
+            ...(uploaded_media[id] || {}),
+          }),
+        );
+
+        highlights.push({ text: data.title });
+        (data.summary.result.outputTextArray as string[]).map((value, i) => {
+          highlights.push({
             text: value,
-            image: data.images[i],
-          };
+            image: imgList[i],
+          });
         });
-        console.log(highlights);
+
         setSummary({
           title: data.title,
           highlights: highlights,
         });
 
-        router.push("editing");
+        router.push("adjust");
       })
       .catch((err) => {
         console.error(err);
@@ -80,16 +93,19 @@ export default function UrlBox(props: BoxProps) {
   return (
     <>
       <form onSubmit={handleSubmit(onSubmit)}>
-        <Box 
+        <Box
           display={"flex"}
           flexDirection={"column"}
           gap={2}
-          justifyContent={"center"} {...props}>
-          <Box
-          display={"flex"}
-          gap={2}
           justifyContent={"center"}
-          alignItems={"center"}>
+          {...props}
+        >
+          <Box
+            display={"flex"}
+            gap={2}
+            justifyContent={"center"}
+            alignItems={"center"}
+          >
             <Box>
               <InputLabel htmlFor="input-url">URL: </InputLabel>
             </Box>
@@ -125,7 +141,14 @@ export default function UrlBox(props: BoxProps) {
               }}
             />
           </Box>
-          <Button variant="contained" type="submit" disabled={loading} sx={{ alignSelf: "end" }}>Go</Button>
+          <Button
+            variant="contained"
+            type="submit"
+            disabled={loading}
+            sx={{ alignSelf: "end" }}
+          >
+            Go
+          </Button>
         </Box>
       </form>
       <Backdrop open={loading}>

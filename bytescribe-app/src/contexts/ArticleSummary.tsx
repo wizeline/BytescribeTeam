@@ -1,10 +1,11 @@
 import { createContext } from "react";
 
 export type ArticleSummary = {
+  id?: string;
   title?: string;
   highlights?: {
     text: string;
-    image?: { src: string };
+    image?: { src: string; s3_key: string };
   }[];
 };
 
