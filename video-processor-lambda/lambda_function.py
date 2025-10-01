@@ -5,6 +5,8 @@ import json
 import shutil
 from natsort import natsorted
 from urllib.parse import unquote_plus
+
+# Assuming moviepy and its dependencies are included in the Lambda layer or package
 from moviepy import *
 import moviepy.config as mpy_config
 from datetime import datetime
@@ -134,6 +136,7 @@ def create_video_from_images_and_audio(
         return False
 
     # --- IMAGE SELECTION LOGIC ---
+    # 1. Check for images in the segment's dedicated local folder (where S3 download put it)
     local_image_files = [
         os.path.join(image_folder, img)
         for img in os.listdir(image_folder)
@@ -148,6 +151,7 @@ def create_video_from_images_and_audio(
             f"Warning: No images found in '{image_folder}'. Falling back to a SINGLE, RANDOM sample image."
         )
 
+        # 2. Fallback to a single, random sample image
         fallback_images = glob.glob(os.path.join(FALLBACK_IMAGE_DIR, "*.png"))
         fallback_images.extend(glob.glob(os.path.join(FALLBACK_IMAGE_DIR, "*.jpg")))
         fallback_images.extend(glob.glob(os.path.join(FALLBACK_IMAGE_DIR, "*.jpeg")))
@@ -287,6 +291,11 @@ def lambda_handler(event, context):
             order = segment.get("order", i)
             audio_s3_key = segment.get("audio")
 
+            # --- NEW: GET IMAGE S3 KEY ---
+            image_data = segment.get("image", {})
+            image_s3_key = image_data.get("s3_key")
+            # -----------------------------
+
             segment_name = f"segment_{order:03d}"
 
             print(
@@ -300,6 +309,23 @@ def lambda_handler(event, context):
             # --- PREPARE LOCAL FOLDERS & PATHS ---
             local_subfolder = os.path.join(tmp_dir, segment_name)
             os.makedirs(local_subfolder, exist_ok=True)
+
+            # --- NEW LOGIC: S3 IMAGE DOWNLOAD ---
+            if image_s3_key:
+                print(f"S3_KEY found: Attempting to download image from {image_s3_key}")
+                # Use the base name of the S3 key as the local filename
+                local_image_path = os.path.join(
+                    local_subfolder, os.path.basename(image_s3_key)
+                )
+                try:
+                    s3_client.download_file(bucket, image_s3_key, local_image_path)
+                    print(f"Successfully downloaded image to {local_image_path}")
+                except Exception as e:
+                    # Log error and continue. The video creation function will fall back to local/sample image.
+                    print(
+                        f"WARNING: Failed to download S3 image {image_s3_key}. Will proceed with local/fallback images. Error: {e}"
+                    )
+            # -------------------------------------
 
             # Define local audio path and download audio
             local_audio_path = os.path.join(
@@ -318,6 +344,7 @@ def lambda_handler(event, context):
             intermediate_video_path = os.path.join(tmp_dir, f"{segment_name}.mp4")
 
             # Call the main video creation function (now with direct duration assignment)
+            # This function automatically picks up the S3-downloaded image if it exists in local_subfolder
             success = create_video_from_images_and_audio(
                 local_subfolder, local_audio_path, intermediate_video_path
             )
