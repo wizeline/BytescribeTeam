@@ -30,7 +30,7 @@ const schema = yup
               .string()
               .max(255, "Highlight text can't be longer than 255 characters")
               .required("Highlights is required"),
-            image: yup.string().required(),
+            image: yup.string().required().nullable(),
           })
           .required(),
       )
@@ -38,17 +38,21 @@ const schema = yup
   })
   .required();
 
-const placeHolderImg = "https://picsum.photos/120/80";
+const placeHolderImg = "/wizeline1-640x400.jpg";
 
 export default function HighlightsTable() {
   const { summary, setSummary } = useContext(ArticleSummaryContext);
   const { highlights } = summary;
 
+  const imageList = (highlights || [])
+    .map(({ image }) => image)
+    .filter((image) => !!image);
+
   const [rowData, setRowData] = useState(
     (highlights || []).map(({ text, image }, id) => ({
       order: id,
       text: text,
-      image: image?.src || placeHolderImg,
+      image: image?.src || null,
     })),
   );
 
@@ -116,16 +120,15 @@ export default function HighlightsTable() {
         headerName: "Images",
         width: 150,
         editable: true,
-        renderCell: ({ value, row }) =>
-          value ? (
-            <img
-              src={value}
-              alt={row.text}
-              width={120}
-              height={80}
-              // priority
-            />
-          ) : null,
+        renderCell: ({ value, row }) => (
+          <img
+            src={value || placeHolderImg}
+            alt={row.text}
+            width={120}
+            height={80}
+            // priority
+          />
+        ),
         renderEditCell: ({ id, value, api, field }) => (
           <Select
             labelId="demo-simple-select-label"
@@ -143,44 +146,60 @@ export default function HighlightsTable() {
               });
             }}
           >
-            {(highlights || [])
-              .map(({ image }) => image)
-              .filter((image) => !!image)
-              .map(({ src }, id) => (
-                <MenuItem key={`${src}-${id}`} value={src}>
-                  <img
-                    src={src}
-                    alt={"Article Picture"}
-                    width={120}
-                    height={80}
-                    // priority
-                  />
-                </MenuItem>
-              ))}
+            {imageList.map(({ src }, id) => (
+              <MenuItem key={`${src}-${id}`} value={src}>
+                <img
+                  src={src}
+                  alt={"Article Picture"}
+                  width={120}
+                  height={80}
+                  // priority
+                />
+              </MenuItem>
+            ))}
           </Select>
         ),
       },
     ],
-    [errors.items, fields, highlights],
+    [errors.items, fields, imageList],
   );
 
   const router = useRouter();
 
   const apiUrl = process.env.NEXT_PUBLIC_ELEVENLABS_API;
 
-  const onSubmit = async (data: { items: typeof rowData }) => {
+  const onSubmit = async (data: {
+    items: (Omit<(typeof rowData)[0], "image"> & { image: string | null })[];
+  }) => {
     if (!apiUrl) {
       alert("Lambda API URL not configured. Set NEXT_PUBLIC_ELEVENLABS_API.");
       return;
     }
 
     setLoading(true);
+
+    const payload = data.items.map((highlight) => {
+      const highlightImg = highlight.image
+        ? {
+            src: highlight.image,
+            s3_key:
+              imageList.find(({ src }) => highlight.image === src)?.s3_key ||
+              "",
+          }
+        : {};
+
+      return {
+        ...highlight,
+        image: highlightImg,
+      };
+    });
+
     fetch(apiUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ highlights: data.items }),
+      body: JSON.stringify({ highlights: payload }),
     })
       .then(async (response) => {
         if (!response.ok) {

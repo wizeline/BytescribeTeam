@@ -28,7 +28,11 @@ export default function UrlBox(props: BoxProps) {
 
   const onSubmit = (data: { urlPath: string }) => {
     const { urlPath } = data;
-    const payload = encodeURI(urlPath);
+    const payload = {
+      url: encodeURI(urlPath),
+      full: true,
+      text_config: { temperature: 0.7, maxTokenCount: 2048 },
+    };
 
     const apiUrl = process.env.NEXT_PUBLIC_CRAWLER_API;
 
@@ -44,7 +48,7 @@ export default function UrlBox(props: BoxProps) {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ url: payload }),
+      body: JSON.stringify(payload),
     })
       .then(async (response) => {
         if (!response.ok) {
@@ -53,12 +57,20 @@ export default function UrlBox(props: BoxProps) {
 
         const data = await response.json();
         const highlights = [];
+        const uploaded_media = data.uploaded_media || [];
+
+        const imgList = (data.images as Record<"string", "string">[]).map(
+          (image, id) => ({
+            ...image,
+            ...(uploaded_media[id] || {}),
+          }),
+        );
 
         highlights.push({ text: data.title });
         (data.summary.result.outputTextArray as string[]).map((value, i) => {
           highlights.push({
             text: value,
-            image: data.images[i],
+            image: imgList[i],
           });
         });
 

@@ -5,7 +5,7 @@ export type ArticleSummary = {
   title?: string;
   highlights?: {
     text: string;
-    image?: { src: string };
+    image?: { src: string; s3_key: string };
   }[];
 };
 

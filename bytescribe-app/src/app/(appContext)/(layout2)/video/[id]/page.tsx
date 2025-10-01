@@ -25,7 +25,7 @@ export default function VideoPage({
 
   const checkAvailability = useCallback(async () => {
     try {
-      const response = await fetch(objectUrl, { method: 'HEAD' });
+      const response = await fetch(objectUrl, { method: "HEAD" });
       if (response.ok) {
         console.log("Video found!");
         return true;
