@@ -175,12 +175,22 @@ def claude_caption_single(image_b64: str, media_type: str, mode: str = "caption"
 
 def caption_or_title_for_s3_image(s3_uri: str, mode: str = "caption") -> Dict[str, str]:
     """Process a single image S3 URI and return dict with result."""
+    print(f"[caption] Starting {mode} for: {s3_uri}")
     try:
         b64, media_type = s3_image_to_base64_and_type(s3_uri)
+        # b64 length gives an approximate size indicator
+        print(f"[caption] Fetched {s3_uri}: media_type={media_type} base64_len={len(b64)}")
         result = claude_caption_single(b64, media_type, mode=mode)
+        # Log a preview of the generated text
+        preview = result[:200] + "..." if isinstance(result, str) and len(result) > 200 else result
+        print(f"[caption] SUCCESS {mode} for {s3_uri}: {preview}")
         return {"s3_uri": s3_uri, "result": result, "mode": mode}
     except (BotoCoreError, ClientError, ValueError) as e:
+        print(f"[caption] FETCH/CLIENT error for {s3_uri}: {e}")
         return {"s3_uri": s3_uri, "error": str(e), "mode": mode}
+    except Exception as ex:
+        print(f"[caption] Unexpected error for {s3_uri}: {ex}")
+        return {"s3_uri": s3_uri, "error": str(ex), "mode": mode}
 
 
 def batch_caption_s3_images(
@@ -195,6 +205,7 @@ def batch_caption_s3_images(
     """
     # We want to preserve order; map futures to index
     results: List[Optional[Dict[str, str]]] = [None] * len(s3_uris)
+    print(f"[batch_caption] Starting batch of {len(s3_uris)} images mode={mode} workers={max_workers}")
     with cf.ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_idx = {
             executor.submit(caption_or_title_for_s3_image, s3_uri, mode): i
@@ -206,8 +217,14 @@ def batch_caption_s3_images(
                 results[idx] = fut.result()
             except Exception as e:
                 results[idx] = {"s3_uri": s3_uris[idx], "error": str(e), "mode": mode}
-    # type: ignore
-    return results  # type: ignore
+    # Log summary
+    try:
+        success = sum(1 for r in results if isinstance(r, dict) and r.get("result"))
+        errors = sum(1 for r in results if isinstance(r, dict) and r.get("error"))
+        print(f"[batch_caption] Completed: success={success} errors={errors} total={len(s3_uris)}")
+    except Exception:
+        pass
+    return results
 
 
 if __name__ == "__main__":

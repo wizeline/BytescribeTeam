@@ -543,6 +543,16 @@ def lambda_handler(event, context=None):
                         "source_url": srcobj.get("src")
                     })
 
+            # Expose the images_json in the immediate response payload so
+            # clients (and tests) can see what was sent to the captioning
+            # routine. Also log it to CloudWatch for troubleshooting.
+            try:
+                response_payload["images_json"] = images_json
+                print(f"DEBUG images_json (first 3): {json.dumps(images_json[:3], ensure_ascii=False)}")
+            except Exception:
+                # If serialization fails for any reason, keep going silently
+                print("DEBUG: failed to serialize images_json for log")
+
             # If async mode requested, start background job and return immediately
             if async_mode:
                 import uuid

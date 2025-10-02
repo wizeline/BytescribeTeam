@@ -293,6 +293,17 @@ def summarize_and_select_images(article_text: str, images_json: list[dict], mode
                         cap_preview = (cap.get("result")[:200] + "...") if cap_ok and len(cap.get("result")) > 200 else (cap.get("result") if cap_ok else None)
                         tit_preview = (tit.get("result")[:200] + "...") if tit_ok and len(tit.get("result")) > 200 else (tit.get("result") if tit_ok else None)
                         logger.info(f"Caption/title for {s3}: caption_ok={bool(cap_ok)} title_ok={bool(tit_ok)} caption_preview={cap_preview} title_preview={tit_preview}")
+                        # Also print debug lines to CloudWatch to help tracing
+                        try:
+                            print(json.dumps({
+                                "s3": s3,
+                                "caption_ok": bool(cap_ok),
+                                "title_ok": bool(tit_ok),
+                                "caption_preview": cap_preview,
+                                "title_preview": tit_preview
+                            }, ensure_ascii=False))
+                        except Exception:
+                            pass
                 except Exception:
                     logger.debug("Failed to log caption/title summary", exc_info=True)
         except Exception as e:
@@ -541,9 +552,68 @@ def summarize_and_select_images(article_text: str, images_json: list[dict], mode
         else:
             text_field = content_arr[0].get("text", "")
         # Try to parse the text as JSON, but be defensive
+        def _enrich_bullets(bullets_list, images_list):
+            if not isinstance(bullets_list, list):
+                return bullets_list
+            try:
+                # build quick index by possible url keys
+                idx_map = {}
+                for img in images_list or []:
+                    # prefer s3_url, then presigned_url, then source_url
+                    for key in ("s3_url", "presigned_url", "source_url"):
+                        val = img.get(key)
+                        if val:
+                            idx_map[val] = img
+
+                enriched = []
+                for b in bullets_list:
+                    try:
+                        if not isinstance(b, dict):
+                            enriched.append(b)
+                            continue
+                        imgs = b.get("image_url")
+                        if not imgs:
+                            enriched.append(b)
+                            continue
+                        # normalize to list
+                        if isinstance(imgs, str):
+                            imgs_list = [imgs]
+                        elif isinstance(imgs, list):
+                            imgs_list = imgs
+                        else:
+                            enriched.append(b)
+                            continue
+
+                        new_imgs = []
+                        for u in imgs_list:
+                            if not isinstance(u, str):
+                                new_imgs.append(u)
+                                continue
+                            meta = idx_map.get(u)
+                            if meta:
+                                new_imgs.append({
+                                    "image_url": u,
+                                    "title": meta.get("title") or None,
+                                    "caption": meta.get("caption") or None,
+                                    "tags": meta.get("tags") or [],
+                                })
+                            else:
+                                # fallback: include original URL string
+                                new_imgs.append({"image_url": u})
+
+                        nb = dict(b)
+                        nb["image_url"] = new_imgs
+                        enriched.append(nb)
+                    except Exception:
+                        enriched.append(b)
+                return enriched
+            except Exception:
+                return bullets_list
+
         try:
             parsed = json.loads(text_field)
-            return parsed.get("bullets", [])
+            bullets = parsed.get("bullets", [])
+            return _enrich_bullets(bullets, images_json)
         except Exception:
             # If text_field itself isn't JSON, try to extract inline JSON from it
             try:
@@ -553,7 +623,8 @@ def summarize_and_select_images(article_text: str, images_json: list[dict], mode
                 if start != -1 and end != -1 and end > start:
                     candidate = text_field[start:end+1]
                     parsed = json.loads(candidate)
-                    return parsed.get("bullets", [])
+                    bullets = parsed.get("bullets", [])
+                    return _enrich_bullets(bullets, images_json)
             except Exception:
                 pass
 
