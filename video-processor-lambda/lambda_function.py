@@ -226,8 +226,30 @@ def create_video_from_images_and_audio(
         # Step 4: Set the audio.
         video_clip.audio = audio_clip
 
+        font_file = "/var/task/fonts/SubtitleFont.ttf"  # Or whatever font you placed in the 'fonts' folder
+
+        print(f"Checking for font file: {font_file}")
+        if os.path.exists(font_file):
+            print(f"SUCCESS: Font file found at {font_file}")
+            # Optional: Check file size to ensure it's not empty
+            print(f"Font file size: {os.path.getsize(font_file)} bytes")
+        else:
+            print(
+                f"FAILURE: Font file NOT found at {font_file}. Current working directory: {os.getcwd()}"
+            )
+            # Optional: List contents of the fonts directory for debugging
+            print(f"Contents of ./fonts/: {os.listdir('./fonts')}")
+
+        txt_clip = (
+            TextClip(font=font_file, text="Hello there!", font_size=70, color="white")
+            .with_duration(10)
+            .with_position("center")
+        )
+
+        video_clip_edit = CompositeVideoClip([video_clip, txt_clip])
+
         # Step 5: Write the video file.
-        video_clip.write_videofile(
+        video_clip_edit.write_videofile(
             output_path, fps=fps, codec="libx264", audio_codec="aac"
         )
         print(f"Video successfully created at {output_path}")
