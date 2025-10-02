@@ -7,14 +7,13 @@ runtime = boto3.client("bedrock-runtime", region_name=region)
 sample_url = "https://wizeline.atlassian.net/wiki/spaces/VS/pages/5029921190/Article+to+Video"
 sample_images = [
     {
-        "title": "Application diagram",
-        "caption": "How application works",
-        "tags": ["application", "diagram"],
+        "title": "AWS Lambda Workflow: Article to Video Conversion",
+        "caption": "Diagram showing AWS Lambda-based workflows for article highlighting and video creation processes.",
         "s3_url": "s3://bytescribeteam/application_diagram.png"
     },
     {
-        "title": "Stepfunction workflow",
-        "caption": "Stepfunction for all tasks",
+        "title": "Replay Generation Workflow: From Eligibility to Completion",
+        "caption": "Flowchart depicting process for generating and managing article replays with video output options.",
         "tags": ["stepfunction"],
         "s3_url": "s3://bytescribeteam/stepfuction-workflow.png"
     }
