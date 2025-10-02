@@ -7,7 +7,16 @@ from natsort import natsorted
 from urllib.parse import unquote_plus
 
 # Assuming moviepy and its dependencies are included in the Lambda layer or package
-from moviepy import *
+from moviepy import (
+    VideoFileClip,
+    AudioFileClip,
+    concatenate_videoclips,
+    ImageClip,
+    TextClip,
+    CompositeVideoClip,
+    ColorClip,
+)
+
 import moviepy.config as mpy_config
 from datetime import datetime
 import random
