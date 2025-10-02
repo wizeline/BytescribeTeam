@@ -133,8 +133,13 @@ def combine_videos(video_paths: list, final_output_path: str):
 # --- CORE FUNCTION: CREATE VIDEO (WITH DIRECT DURATION ASSIGNMENT) ---
 
 
+# UPDATED: Added segment_text as an argument
 def create_video_from_images_and_audio(
-    image_folder: str, audio_path: str, output_path: str, fps: int = 1
+    image_folder: str,
+    audio_path: str,
+    output_path: str,
+    segment_text: str,
+    fps: int = 1,
 ):
     """
     Creates a video from a sequence of images and a single audio file from local paths.
@@ -226,24 +231,13 @@ def create_video_from_images_and_audio(
         # Step 4: Set the audio.
         video_clip.audio = audio_clip
 
-        font_file = "/var/task/fonts/SubtitleFont.ttf"  # Or whatever font you placed in the 'fonts' folder
-
-        print(f"Checking for font file: {font_file}")
-        if os.path.exists(font_file):
-            print(f"SUCCESS: Font file found at {font_file}")
-            # Optional: Check file size to ensure it's not empty
-            print(f"Font file size: {os.path.getsize(font_file)} bytes")
-        else:
-            print(
-                f"FAILURE: Font file NOT found at {font_file}. Current working directory: {os.getcwd()}"
-            )
-            # Optional: List contents of the fonts directory for debugging
-            print(f"Contents of ./fonts/: {os.listdir('./fonts')}")
+        font_file = "/var/task/fonts/SubtitleFont.ttf"
 
         txt_clip = (
-            TextClip(font=font_file, text="Hello there!", font_size=70, color="white")
-            .with_duration(10)
-            .with_position("center")
+            # UPDATED: Use the segment_text argument
+            TextClip(font=font_file, text=segment_text, font_size=40, color="white")
+            .with_duration(video_segment_duration)
+            .with_position(("center", video_clip.h * 0.9))
         )
 
         video_clip_edit = CompositeVideoClip([video_clip, txt_clip])
@@ -322,7 +316,10 @@ def lambda_handler(event, context):
             order = segment.get("order", i)
             audio_s3_key = segment.get("audio")
 
-            # --- NEW: GET IMAGE S3 KEY ---
+            # NEW: Extract the segment text, using a fallback if missing
+            segment_text = segment.get("text", "No Text Provided")
+
+            # --- GET IMAGE S3 KEY ---
             image_data = segment.get("image", {})
             image_s3_key = image_data.get("s3_key")
             # -----------------------------
@@ -332,6 +329,7 @@ def lambda_handler(event, context):
             print(
                 f"\n--- Starting processing for segment: {segment_name} (Order {order}) ---"
             )
+            print(f"Segment Text: '{segment_text}'")
 
             if not audio_s3_key:
                 print(f"Skipping segment {order}: 'audio' key missing.")
@@ -341,7 +339,7 @@ def lambda_handler(event, context):
             local_subfolder = os.path.join(tmp_dir, segment_name)
             os.makedirs(local_subfolder, exist_ok=True)
 
-            # --- NEW LOGIC: S3 IMAGE DOWNLOAD ---
+            # --- S3 IMAGE DOWNLOAD ---
             if image_s3_key:
                 print(f"S3_KEY found: Attempting to download image from {image_s3_key}")
                 # Use the base name of the S3 key as the local filename
@@ -374,10 +372,9 @@ def lambda_handler(event, context):
             # Define output path for the intermediate video
             intermediate_video_path = os.path.join(tmp_dir, f"{segment_name}.mp4")
 
-            # Call the main video creation function (now with direct duration assignment)
-            # This function automatically picks up the S3-downloaded image if it exists in local_subfolder
+            # Call the main video creation function (now passing segment_text)
             success = create_video_from_images_and_audio(
-                local_subfolder, local_audio_path, intermediate_video_path
+                local_subfolder, local_audio_path, intermediate_video_path, segment_text
             )
 
             if success:
