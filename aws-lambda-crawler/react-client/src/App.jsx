@@ -4,7 +4,7 @@ const API_URL = import.meta.env.VITE_API_URL || "REPLACE_WITH_API_URL";
 
 export default function App() {
   const [url, setUrl] = useState(
-    "https://wizeline.atlassian.net/wiki/spaces/VS/pages/4589223950/Technical+Overview",
+    "https://wizeline.atlassian.net/wiki/spaces/VS/pages/5029921190/Article+to+Video",
   );
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);

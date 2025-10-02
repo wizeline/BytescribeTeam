@@ -20,4 +20,4 @@ profile = "my-aws-profile"
 confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
 image_repositories = []
-	parameter_overrides = "ConfluenceSecretName=\"arn:aws:secretsmanager:ap-southeast-2:922523344160:secret:confluence/cred-tHwA8U\" S3UploadBucket=\"ddh-aws-lambda-crawler\" S3UploadPrefix=\"ddh-media-uploads\""
+	parameter_overrides = "ConfluenceSecretName=\"arn:aws:secretsmanager:ap-southeast-2:922523344160:secret:confluence/cred-tHwA8U\" S3UploadBucket=\"bytescribe-image-audio-bucket\" S3UploadPrefix=\"media-uploads\""

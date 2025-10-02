@@ -209,13 +209,41 @@ def fetch_all_content(url: str, timeout: int = 10, max_retries: int = 2) -> Opti
 
     resources: Dict[str, bytes] = {}
     failed: List[str] = []
+    
+    # Get auth credentials once for reuse
+    creds = get_confluence_credentials()
+    bearer = creds.get("bearer")
+    auth_user = creds.get("user") or os.getenv("CONFLUENCE_USER")
+    auth_token = creds.get("token") or os.getenv("CONFLUENCE_API_TOKEN") or os.getenv("CONFLUENCE_PASSWORD")
 
     def _download(res_url: str) -> Tuple[str, Optional[bytes]]:
         try:
-            resp = requests.get(res_url, headers={"User-Agent": "aws-lambda-crawler/1.0"}, timeout=timeout)
+            # Use same headers and auth as main fetch for consistency
+            # This is critical for Confluence/authenticated resources
+            download_headers = {"User-Agent": "aws-lambda-crawler/1.0"}
+            download_auth = None
+            
+            # If this is from the same domain as the base URL, use same auth
+            res_parsed = urllib.parse.urlparse(res_url)
+            if res_parsed.netloc == parsed_page.netloc:
+                # Reuse auth from main request
+                if bearer:
+                    download_headers["Authorization"] = f"Bearer {bearer}"
+                elif auth_user and auth_token:
+                    download_auth = HTTPBasicAuth(auth_user, auth_token)
+            
+            resp = requests.get(res_url, headers=download_headers, auth=download_auth, timeout=timeout)
             resp.raise_for_status()
-            return res_url, resp.content
-        except Exception:
+            content = resp.content
+            # Debug: log what we downloaded to help diagnose issues
+            content_type = resp.headers.get('content-type', '')
+            if len(content) < 10000 and ('text/html' in content_type or 'application/json' in content_type):
+                # Likely an error page, not actual resource - log it
+                print(f"WARNING: Resource {res_url} returned {content_type} ({len(content)} bytes)")
+                print(f"  First 200 chars: {content[:200]}")
+            return res_url, content
+        except Exception as e:
+            print(f"Failed to download resource {res_url}: {e}")
             return res_url, None
 
     with ThreadPoolExecutor(max_workers=6) as ex:

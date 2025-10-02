@@ -4,16 +4,20 @@ from crawler.fetcher import fetch_html, fetch_all_content
 from crawler.parser import parse_html
 import traceback
 
-# Import summarize_page from the local app module
+# Import Bedrock helper functions from the local app module
 try:
-    from app.utils.bedrock.bedrock_runtime import summarize_page
+    from app.utils.bedrock.bedrock_runtime import summarize_and_select_images, summarize_page
 except Exception as e:
-    print(f"Warning: Could not import summarize_page: {e}")
+    print(f"Warning: Could not import bedrock helpers: {e}")
+    summarize_and_select_images = None
     summarize_page = None
 import os
 import hashlib
 import boto3
+import mimetypes
+from urllib.parse import urlparse, unquote
 from botocore.exceptions import ClientError
+from botocore.config import Config as BotoConfig
 
 
 def _cors_headers():
@@ -30,6 +34,40 @@ def _proxy_response(status_code: int, payload: dict):
         "headers": _cors_headers(),
         "body": json.dumps(payload),
     }
+
+
+def _detect_content_type_from_bytes(data: bytes) -> str:
+    """Detect content type from magic bytes (file signature)."""
+    if not data or len(data) < 12:
+        return None
+    
+    # JPEG
+    if data[:2] == b'\xff\xd8':
+        return 'image/jpeg'
+    # PNG
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return 'image/png'
+    # GIF
+    if data[:6] in (b'GIF87a', b'GIF89a'):
+        return 'image/gif'
+    # WebP (RIFF....WEBP)
+    if data[8:12] == b'WEBP':
+        return 'image/webp'
+    # BMP
+    if data[:2] == b'BM':
+        return 'image/bmp'
+    # SVG (starts with < or whitespace then <)
+    try:
+        text_start = data[:100].decode('utf-8', errors='ignore').lstrip()
+        if text_start.startswith('<svg') or text_start.startswith('<?xml'):
+            return 'image/svg+xml'
+    except:
+        pass
+    # ICO
+    if data[:4] == b'\x00\x00\x01\x00':
+        return 'image/x-icon'
+    
+    return None
 
 
 def lambda_handler(event, context=None):
@@ -51,7 +89,8 @@ def lambda_handler(event, context=None):
         try:
             body = json.loads(event["body"]) if isinstance(event["body"], str) else event["body"]
             if body.get("action") == "check_models":
-                if summarize_page is not None:
+                # Consider Bedrock integration available if either helper is present
+                if summarize_and_select_images is not None or summarize_page is not None:
                     try:
                         from app.utils.bedrock.bedrock_runtime import check_model_access
                         accessible_models = check_model_access()
@@ -156,9 +195,9 @@ def lambda_handler(event, context=None):
         response_payload["resource_count"] = len(resources)
         response_payload["failed_resources"] = failed
 
-    # If bedrock summarize_page is available, call it with the parsed text.
+    # If any Bedrock summarization helper is available, call it with the parsed text.
     # Allow callers to provide `model_id` and `text_config` in the request body.
-    if summarize_page is not None:
+    if summarize_and_select_images is not None or summarize_page is not None:
         try:
             content_to_summary = parsed.get("text_snippet") or ""
             model_id = body_dict.get("model_id") if isinstance(body_dict, dict) else None
@@ -172,30 +211,58 @@ def lambda_handler(event, context=None):
 
             # If fetched resources exist, attempt to upload media (images/videos) to S3
             media_refs = []
+            # ensure these are defined even if the upload attempt fails
+            s3_bucket = None
+            s3_prefix = ""
             try:
                 # Determine bucket and optional prefix from environment
                 s3_bucket = os.getenv("S3_UPLOAD_BUCKET") or os.getenv("BUCKET_NAME")
                 s3_prefix = os.getenv("S3_UPLOAD_PREFIX", "")
 
                 # Helper to upload bytes to S3 and return an https URL
-                s3_client = boto3.client("s3")
+                # Create the S3 client with explicit SigV4 signing and the
+                # current region so generated presigned URLs include the
+                # correct regional endpoint / signature format.
+                region = os.getenv("REGION") or os.getenv("AWS_DEFAULT_REGION")
+                s3_config = BotoConfig(signature_version="s3v4", region_name=region) if region else BotoConfig(signature_version="s3v4")
+                s3_client = boto3.client("s3", config=s3_config)
 
                 def _upload_to_s3(key: str, data: bytes, content_type: str = None):
                     """Upload bytes to S3 and return a dict with upload_key and presigned_url (or None on failure)."""
                     upload_key = f"{s3_prefix.rstrip('/')}/{key}".lstrip('/') if s3_prefix else key
                     try:
-                        extra_args = {"ACL": "private"}
+                        # Build put_object kwargs - ACL may fail on buckets with BPA enabled
+                        put_kwargs = {"Bucket": s3_bucket, "Key": upload_key, "Body": data}
                         if content_type:
-                            extra_args["ContentType"] = content_type
-                        s3_client.put_object(Bucket=s3_bucket, Key=upload_key, Body=data, **({} if not extra_args else {k: v for k, v in extra_args.items()}))
+                            put_kwargs["ContentType"] = content_type
+                        # Try with ACL first, fallback without it if bucket blocks ACLs
+                        try:
+                            s3_client.put_object(**put_kwargs, ACL="private")
+                        except ClientError as acl_err:
+                            # If ACL is not supported (BucketOwnerEnforced), retry without it
+                            if "AccessControlListNotSupported" in str(acl_err):
+                                s3_client.put_object(**put_kwargs)
+                            else:
+                                raise
 
                         # Generate a presigned GET URL so downstream consumers can fetch the object
                         expires = int(os.getenv("S3_PRESIGNED_EXPIRES", "3600"))
+                        # Include ResponseContentType in presigned URL to ensure browser gets correct MIME type
+                        presign_params = {"Bucket": s3_bucket, "Key": upload_key}
+                        if content_type:
+                            presign_params["ResponseContentType"] = content_type
                         presigned = s3_client.generate_presigned_url(
                             "get_object",
-                            Params={"Bucket": s3_bucket, "Key": upload_key},
+                            Params=presign_params,
                             ExpiresIn=expires,
                         )
+                        # Emit a debug line so CloudWatch logs show the key,
+                        # guessed content type and the presigned URL for
+                        # troubleshooting in environments where images do
+                        # not render in the client.
+                        print(f"S3 uploaded: {upload_key} size={len(data)} bytes content_type={content_type} presigned={presigned[:100]}...")
+                        # Also log first few bytes as hex for debugging corruption
+                        print(f"  First 16 bytes (hex): {data[:16].hex() if len(data) >= 16 else data.hex()}")
                         return {"upload_key": upload_key, "presigned_url": presigned}
                     except ClientError as exc:
                         print(f"S3 upload or presign failed for {upload_key}: {exc}")
@@ -208,11 +275,35 @@ def lambda_handler(event, context=None):
                     for url_res, data in resources.items():
                         if not data:
                             continue
-                        # Create a stable key name
-                        parsed_name = url_res.split("/")[-1] or "resource"
+                        # Ensure data is bytes (not string) - this is critical for binary files like images
+                        if not isinstance(data, bytes):
+                            print(f"WARNING: Resource {url_res} is not bytes, type={type(data)}, skipping upload")
+                            continue
+                        
+                        # DEBUG: Log what we're about to upload
+                        print(f"Processing resource: {url_res}")
+                        print(f"  Size: {len(data)} bytes")
+                        print(f"  First 16 bytes: {data[:16].hex() if len(data) >= 16 else data.hex()}")
+                        
+                        # Create a stable key name. Use the path portion of the
+                        # source URL (drop query string and fragment) and
+                        # decode percent-encodings. This avoids producing S3
+                        # object keys that contain '?' or '&' which later
+                        # confuse presigned URL generation / usage.
+                        parsed_name = urlparse(url_res).path.split("/")[-1] or "resource"
+                        parsed_name = unquote(parsed_name)
                         sha = hashlib.sha256(url_res.encode("utf-8")).hexdigest()[:10]
                         key = f"{sha}_{parsed_name}"
-                        uploaded = _upload_to_s3(key, data)
+                        # Try to guess a sensible Content-Type for the object
+                        content_type = mimetypes.guess_type(parsed_name)[0]
+                        # If mimetypes couldn't guess, try to detect from magic bytes
+                        if not content_type:
+                            content_type = _detect_content_type_from_bytes(data)
+                        # Final fallback for images
+                        if not content_type and any(ext in parsed_name.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg']):
+                            # Default to jpeg if filename suggests image but type detection failed
+                            content_type = 'image/jpeg'
+                        uploaded = _upload_to_s3(key, data, content_type=content_type)
                         if uploaded:
                             media_refs.append({
                                 "source_url": url_res,
@@ -251,7 +342,72 @@ def lambda_handler(event, context=None):
                 # Also expose the uploaded media list in the response so API clients can use presigned URLs
                 response_payload["uploaded_media"] = media_refs
 
-            summary_resp = summarize_page(content_page=content_to_summary, **kwargs)
+            # Prefer the newer summarize_and_select_images API which accepts
+            # the article text and a list of image metadata. Build images_json
+            # from uploaded media, parsed images and videos. Fall back to the
+            # original summarize_page when the newer function is unavailable.
+            summary_resp = None
+            try:
+                images_json = []
+                # Use media_refs (uploaded S3 objects / presigned URLs) first
+                for m in (media_refs or []):
+                    # Normalize to expected keys: title, caption/tags, s3_url
+                    img = {}
+                    # If we uploaded the object, we have s3_key and presigned_url
+                    if m.get("s3_key"):
+                        img["s3_url"] = f"s3://{s3_bucket}/{m.get('s3_key')}" if s3_bucket and m.get('s3_key') else None
+                        img["presigned_url"] = m.get("presigned_url")
+                    else:
+                        # If no upload, but we have a source_url, include it
+                        img["source_url"] = m.get("source_url")
+
+                    # Try to provide title/caption from parsed image metadata
+                    img["title"] = m.get("title") or m.get("alt") or None
+                    img["caption"] = m.get("alt") or m.get("title") or None
+                    # Tags may be absent; provide empty list to keep schema consistent
+                    img["tags"] = m.get("tags") or []
+                    images_json.append(img)
+
+                # Also include images/videos parsed directly from HTML that might not be uploaded
+                for img in parsed.get("images", []) or []:
+                    images_json.append({
+                        "title": img.get("title"),
+                        "caption": img.get("alt") or img.get("caption"),
+                        "tags": img.get("tags") or [],
+                        "s3_url": None,
+                        "source_url": img.get("src")
+                    })
+
+                for vid in parsed.get("videos", []) or []:
+                    for srcobj in vid.get("sources", []) or []:
+                        images_json.append({
+                            "title": vid.get("title") or None,
+                            "caption": vid.get("caption") or None,
+                            "tags": [],
+                            "s3_url": None,
+                            "source_url": srcobj.get("src")
+                        })
+
+                if summarize_and_select_images is not None:
+                    # Forward any caller-provided model_id / text_config
+                    summary_resp = summarize_and_select_images(
+                        article_text=content_to_summary,
+                        images_json=images_json,
+                        model_id=kwargs.get("model_id"),
+                        text_config=kwargs.get("text_config")
+                    )
+                elif summarize_page is not None:
+                    # Fallback to the older summarize_page API
+                    summary_resp = summarize_page(content_page=content_to_summary, **kwargs)
+                else:
+                    raise RuntimeError("No Bedrock summarization function available")
+            except Exception:
+                # If anything in the new path fails, try the fallback summarize_page
+                if summary_resp is None and summarize_page is not None:
+                    try:
+                        summary_resp = summarize_page(content_page=content_to_summary, **kwargs)
+                    except Exception:
+                        raise
             # summary_resp is typically a dict like {"result": ...}
             # If the model returned an `outputText` string, convert it to an
             # array by splitting on newlines, trimming whitespace and removing
@@ -282,7 +438,11 @@ def lambda_handler(event, context=None):
                 # field, keep the original summary_resp unchanged.
                 pass
 
-            response_payload["summary"] = summary_resp
+            # Normalize summarize_and_select_images output (typically a list)
+            if isinstance(summary_resp, list):
+                response_payload["summary"] = {"bullets": summary_resp}
+            else:
+                response_payload["summary"] = summary_resp
         except Exception as exc:
             # Don't fail the whole request if summarization fails
             error_msg = str(exc)
