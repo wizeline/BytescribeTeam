@@ -70,6 +70,106 @@ def _detect_content_type_from_bytes(data: bytes) -> str:
     return None
 
 
+def _process_async_job(event, context):
+    """Process an async job in the background"""
+    try:
+        body_str = event.get("body", "{}")
+        job_data = json.loads(body_str)
+        
+        job_id = job_data["job_id"]
+        content_to_summary = job_data["content_to_summary"]
+        images_json = job_data["images_json"]
+        model_id = job_data.get("model_id")
+        text_config = job_data.get("text_config")
+        s3_bucket = job_data["s3_bucket"]
+        media_refs = job_data.get("media_refs", [])
+        response_payload = job_data["response_payload"]
+        
+        # Update job status
+        region = os.getenv("REGION") or os.getenv("AWS_DEFAULT_REGION")
+        s3_config = BotoConfig(signature_version="s3v4", region_name=region) if region else BotoConfig(signature_version="s3v4")
+        s3_client = boto3.client("s3", config=s3_config)
+        
+        def update_job_status(status, progress=None, result=None, error=None):
+            job_update = {
+                "job_id": job_id,
+                "status": status,
+                "updated_at": context.aws_request_id if context else None,
+            }
+            if progress:
+                job_update["progress"] = progress
+            if result:
+                job_update["result"] = result
+            if error:
+                job_update["error"] = error
+                
+            job_key = f"jobs/{job_id}.json"
+            s3_client.put_object(
+                Bucket=s3_bucket,
+                Key=job_key,
+                Body=json.dumps(job_update),
+                ContentType="application/json"
+            )
+        
+        update_job_status("processing", "Generating captions and summary...")
+        
+        # Process the job using existing logic
+        kwargs = {}
+        if model_id:
+            kwargs["model_id"] = model_id
+        if text_config and isinstance(text_config, dict):
+            kwargs["text_config"] = text_config
+        if media_refs:
+            kwargs["media_refs"] = media_refs
+            
+        # Run the summarization
+        summary_resp = None
+        if summarize_and_select_images is not None:
+            summary_resp = summarize_and_select_images(
+                article_text=content_to_summary,
+                images_json=images_json,
+                model_id=kwargs.get("model_id"),
+                text_config=kwargs.get("text_config")
+            )
+        elif summarize_page is not None:
+            summary_resp = summarize_page(content_page=content_to_summary, **kwargs)
+        
+        # Process summary response
+        if isinstance(summary_resp, list):
+            response_payload["summary"] = {"bullets": summary_resp}
+        else:
+            response_payload["summary"] = summary_resp
+            
+        # Convert outputText to array if needed
+        try:
+            if isinstance(summary_resp, dict):
+                def _convert_output_to_array(obj: dict):
+                    if not isinstance(obj, dict):
+                        return
+                    out = obj.get("outputText")
+                    if isinstance(out, str):
+                        obj["outputTextArray"] = [line.strip() for line in out.splitlines() if line.strip()]
+
+                _convert_output_to_array(summary_resp)
+                if isinstance(summary_resp.get("result"), dict):
+                    _convert_output_to_array(summary_resp["result"])
+        except Exception:
+            pass
+        
+        # Mark job as completed
+        update_job_status("completed", "Processing completed successfully", response_payload)
+        
+        return {"statusCode": 200, "body": json.dumps({"status": "job completed"})}
+        
+    except Exception as exc:
+        # Mark job as failed
+        try:
+            update_job_status("failed", error=str(exc))
+        except:
+            pass
+        return {"statusCode": 500, "body": json.dumps({"error": str(exc)})}
+
+
 def lambda_handler(event, context=None):
     """AWS Lambda handler.
 
@@ -84,30 +184,75 @@ def lambda_handler(event, context=None):
     if isinstance(event, dict) and event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": _cors_headers(), "body": ""}
 
-    # Check if this is a model access test request
+    # Handle async job processing (background invocation)
+    if isinstance(event, dict) and event.get("action") == "process_job":
+        return _process_async_job(event, context)
+
+    # Check if this is a model access test request or job status poll
     if isinstance(event, dict) and "body" in event and event["body"]:
         try:
             body = json.loads(event["body"]) if isinstance(event["body"], str) else event["body"]
-            if body.get("action") == "check_models":
+
+            # If client wants to poll job status, handle early and return job JSON
+            if body.get("action") == "job_status":
+                job_id = body.get("job_id")
+                if not job_id:
+                    return _proxy_response(400, {"error": "missing job_id"})
+                region = os.getenv("REGION") or os.getenv("AWS_DEFAULT_REGION")
+                s3_config = BotoConfig(signature_version="s3v4", region_name=region) if region else BotoConfig(signature_version="s3v4")
+                s3_client = boto3.client("s3", config=s3_config)
+                s3_bucket = os.getenv("S3_UPLOAD_BUCKET") or os.getenv("BUCKET_NAME")
+                if not s3_bucket:
+                    return _proxy_response(500, {"error": "S3 upload bucket not configured"})
+                try:
+                    job_key = f"jobs/{job_id}.json"
+                    result = s3_client.get_object(Bucket=s3_bucket, Key=job_key)
+                    job_data = json.loads(result["Body"].read())
+                    return _proxy_response(200, job_data)
+                except ClientError as e:
+                    if e.response['Error']['Code'] == 'NoSuchKey':
+                        return _proxy_response(404, {"error": "job not found", "job_id": job_id})
+                    return _proxy_response(500, {"error": f"failed to get job status: {str(e)}"})
+
+            # Model access checks and diagnostics
+            if body.get("action") in ("check_models", "diagnostics"):
                 # Consider Bedrock integration available if either helper is present
                 if summarize_and_select_images is not None or summarize_page is not None:
                     try:
                         from app.utils.bedrock.bedrock_runtime import check_model_access
                         accessible_models = check_model_access()
+                    except Exception as exc:
+                        return _proxy_response(500, {
+                            "action": body.get("action"),
+                            "error": str(exc),
+                            "accessible_models": []
+                        })
+
+                    # Return just the accessible models for check_models
+                    if body.get("action") == "check_models":
                         return _proxy_response(200, {
                             "action": "check_models",
                             "accessible_models": accessible_models,
                             "total_accessible": len(accessible_models)
                         })
-                    except Exception as exc:
-                        return _proxy_response(500, {
-                            "action": "check_models",
-                            "error": str(exc),
-                            "accessible_models": []
-                        })
+
+                    # diagnostics: include a few environment keys plus the accessible models
+                    env = dict(os.environ)
+                    interesting = {
+                        "REGION": env.get("REGION") or env.get("AWS_DEFAULT_REGION"),
+                        "CLAUDE_INFERENCE_PROFILE_ARN": env.get("CLAUDE_INFERENCE_PROFILE_ARN"),
+                        "S3_UPLOAD_BUCKET": env.get("S3_UPLOAD_BUCKET") or env.get("BUCKET_NAME"),
+                        "S3_UPLOAD_PREFIX": env.get("S3_UPLOAD_PREFIX"),
+                    }
+                    return _proxy_response(200, {
+                        "action": "diagnostics",
+                        "environment": interesting,
+                        "accessible_models": accessible_models,
+                        "total_accessible": len(accessible_models)
+                    })
                 else:
                     return _proxy_response(500, {
-                        "action": "check_models", 
+                        "action": body.get("action"), 
                         "error": "Bedrock integration not available"
                     })
         except Exception:
@@ -195,6 +340,27 @@ def lambda_handler(event, context=None):
         response_payload["resource_count"] = len(resources)
         response_payload["failed_resources"] = failed
 
+    # Check if this is an async job status request
+    if isinstance(body_dict, dict) and body_dict.get("action") == "job_status":
+        job_id = body_dict.get("job_id")
+        if not job_id:
+            return _proxy_response(400, {"error": "missing job_id"})
+        
+        # Check job status in S3
+        try:
+            s3_client = boto3.client("s3", config=s3_config)
+            job_key = f"jobs/{job_id}.json"
+            result = s3_client.get_object(Bucket=s3_bucket, Key=job_key)
+            job_data = json.loads(result["Body"].read())
+            return _proxy_response(200, job_data)
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                return _proxy_response(404, {"error": "job not found", "job_id": job_id})
+            return _proxy_response(500, {"error": f"failed to get job status: {str(e)}"})
+
+    # Check if async processing is requested
+    async_mode = isinstance(body_dict, dict) and body_dict.get("async", False)
+    
     # If any Bedrock summarization helper is available, call it with the parsed text.
     # Allow callers to provide `model_id` and `text_config` in the request body.
     if summarize_and_select_images is not None or summarize_page is not None:
@@ -342,54 +508,107 @@ def lambda_handler(event, context=None):
                 # Also expose the uploaded media list in the response so API clients can use presigned URLs
                 response_payload["uploaded_media"] = media_refs
 
+            # Build images_json now (used by summarization and needed for async jobs)
+            images_json = []
+            # Use media_refs (uploaded S3 objects / presigned URLs) first
+            for m in (media_refs or []):
+                img = {}
+                if m.get("s3_key"):
+                    img["s3_url"] = f"s3://{s3_bucket}/{m.get('s3_key')}" if s3_bucket and m.get('s3_key') else None
+                    img["presigned_url"] = m.get("presigned_url")
+                else:
+                    img["source_url"] = m.get("source_url")
+                img["title"] = m.get("title") or m.get("alt") or None
+                img["caption"] = m.get("alt") or m.get("title") or None
+                img["tags"] = m.get("tags") or []
+                images_json.append(img)
+
+            # Also include images/videos parsed directly from HTML that might not be uploaded
+            for img in parsed.get("images", []) or []:
+                images_json.append({
+                    "title": img.get("title"),
+                    "caption": img.get("alt") or img.get("caption"),
+                    "tags": img.get("tags") or [],
+                    "s3_url": None,
+                    "source_url": img.get("src")
+                })
+
+            for vid in parsed.get("videos", []) or []:
+                for srcobj in vid.get("sources", []) or []:
+                    images_json.append({
+                        "title": vid.get("title") or None,
+                        "caption": vid.get("caption") or None,
+                        "tags": [],
+                        "s3_url": None,
+                        "source_url": srcobj.get("src")
+                    })
+
+            # If async mode requested, start background job and return immediately
+            if async_mode:
+                import uuid
+                job_id = str(uuid.uuid4())
+                
+                # Create initial job record
+                job_data = {
+                    "job_id": job_id,
+                    "status": "processing",
+                    "created_at": context.aws_request_id if context else None,
+                    "url": url,
+                    "progress": "Starting image analysis and summarization..."
+                }
+                
+                # Save job status to S3
+                try:
+                    job_key = f"jobs/{job_id}.json"
+                    s3_client.put_object(
+                        Bucket=s3_bucket, 
+                        Key=job_key, 
+                        Body=json.dumps(job_data),
+                        ContentType="application/json"
+                    )
+                    
+                    # Invoke another Lambda asynchronously to process the job
+                    lambda_client = boto3.client("lambda", region_name=region)
+                    async_payload = {
+                        "job_id": job_id,
+                        "content_to_summary": content_to_summary,
+                        "images_json": images_json,
+                        "model_id": kwargs.get("model_id"),
+                        "text_config": kwargs.get("text_config"),
+                        "s3_bucket": s3_bucket,
+                        "media_refs": media_refs,
+                        "response_payload": response_payload
+                    }
+                    
+                    lambda_client.invoke(
+                        FunctionName=context.function_name if context else "aws-lambda-crawler",
+                        InvocationType='Event',  # Async
+                        Payload=json.dumps({
+                            "action": "process_job",
+                            "body": json.dumps(async_payload)
+                        })
+                    )
+                    
+                    return _proxy_response(202, {
+                        "job_id": job_id,
+                        "status": "processing",
+                        "message": "Job started. Use /crawl with {\"action\":\"job_status\",\"job_id\":\"" + job_id + "\"} to check progress.",
+                        "basic_content": response_payload  # Return basic content immediately
+                    })
+                    
+                except Exception as e:
+                    return _proxy_response(500, {"error": f"Failed to start async job: {str(e)}"})
+
             # Prefer the newer summarize_and_select_images API which accepts
             # the article text and a list of image metadata. Build images_json
             # from uploaded media, parsed images and videos. Fall back to the
             # original summarize_page when the newer function is unavailable.
             summary_resp = None
             try:
-                images_json = []
-                # Use media_refs (uploaded S3 objects / presigned URLs) first
-                for m in (media_refs or []):
-                    # Normalize to expected keys: title, caption/tags, s3_url
-                    img = {}
-                    # If we uploaded the object, we have s3_key and presigned_url
-                    if m.get("s3_key"):
-                        img["s3_url"] = f"s3://{s3_bucket}/{m.get('s3_key')}" if s3_bucket and m.get('s3_key') else None
-                        img["presigned_url"] = m.get("presigned_url")
-                    else:
-                        # If no upload, but we have a source_url, include it
-                        img["source_url"] = m.get("source_url")
-
-                    # Try to provide title/caption from parsed image metadata
-                    img["title"] = m.get("title") or m.get("alt") or None
-                    img["caption"] = m.get("alt") or m.get("title") or None
-                    # Tags may be absent; provide empty list to keep schema consistent
-                    img["tags"] = m.get("tags") or []
-                    images_json.append(img)
-
-                # Also include images/videos parsed directly from HTML that might not be uploaded
-                for img in parsed.get("images", []) or []:
-                    images_json.append({
-                        "title": img.get("title"),
-                        "caption": img.get("alt") or img.get("caption"),
-                        "tags": img.get("tags") or [],
-                        "s3_url": None,
-                        "source_url": img.get("src")
-                    })
-
-                for vid in parsed.get("videos", []) or []:
-                    for srcobj in vid.get("sources", []) or []:
-                        images_json.append({
-                            "title": vid.get("title") or None,
-                            "caption": vid.get("caption") or None,
-                            "tags": [],
-                            "s3_url": None,
-                            "source_url": srcobj.get("src")
-                        })
-
+                # summarize_and_select_images expects images_json which was
+                # constructed earlier (and included in the async payload when
+                # async mode is used). Use the existing images_json variable.
                 if summarize_and_select_images is not None:
-                    # Forward any caller-provided model_id / text_config
                     summary_resp = summarize_and_select_images(
                         article_text=content_to_summary,
                         images_json=images_json,
@@ -397,7 +616,6 @@ def lambda_handler(event, context=None):
                         text_config=kwargs.get("text_config")
                     )
                 elif summarize_page is not None:
-                    # Fallback to the older summarize_page API
                     summary_resp = summarize_page(content_page=content_to_summary, **kwargs)
                 else:
                     raise RuntimeError("No Bedrock summarization function available")

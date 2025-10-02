@@ -12,7 +12,12 @@ from app.constants import (
     BEDROCK_MODEL_ANTHROPIC_CLAUDE35
 )
 from app.core.config import settings
+from .gen_captions import batch_caption_s3_images
 
+# Allow overriding with inference profile ARN for models that require it
+CLAUDE_INFERENCE_PROFILE = os.environ.get("CLAUDE_INFERENCE_PROFILE_ARN")
+_CAPTION_MODE = "caption"
+_TITLE_MODE = "title"
 _DEFAULT_PROMPT = """
     Summarize the following text into exactly 3 main bullet points:
     - Each bullet point must be no longer than 100 words.
@@ -68,32 +73,71 @@ def check_model_access():
     
     for model_id in test_models:
         try:
-            # Try a minimal request to test access
-            body = json.dumps({
-                "inputText": "test",
-                "textGenerationConfig": {
-                    "maxTokenCount": 10,
-                    "temperature": 0.1
+            # Build a minimal request that matches the model's expected schema.
+            # Anthropic/Claude models expect a `messages` array, while Titan
+            # models expect an `inputText` + `textGenerationConfig`.
+            if "anthropic" in (model_id or "") or "claude" in (model_id or ""):
+                body_obj = {
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 10,
+                    "temperature": 0.1,
+                    "messages": [{"role": "user", "content": "test"}],
                 }
-            })
-            
+            else:
+                body_obj = {
+                    "inputText": "test",
+                    "textGenerationConfig": {"maxTokenCount": 10, "temperature": 0.1},
+                }
+
             bedrock_client.invoke_model(
                 modelId=model_id,
-                body=body,
+                body=json.dumps(body_obj),
                 contentType="application/json",
-                accept="application/json"
+                accept="application/json",
             )
             accessible_models.append(model_id)
             logger.info(f"✓ Model {model_id} is accessible")
-            
+
         except ClientError as ex:
             err = ex.response.get('Error', {}) if hasattr(ex, 'response') else {}
             error_code = err.get('Code', 'Unknown')
+            # Keep the message but avoid confusing ValidationExceptions caused
+            # by using the wrong request schema when probing models.
             logger.warning(f"✗ Model {model_id} not accessible: {error_code} Message={err.get('Message')}")
             logger.debug("ClientError response for model %s: %s", model_id, getattr(ex, 'response', str(ex)))
         except Exception as ex:
             logger.warning(f"✗ Model {model_id} test failed: {str(ex)}")
     
+    # If an inference profile ARN is configured for Claude models, try invoking it
+    # as well. Many Anthropic/Claude 3.5 variants require invocation via an
+    # inference profile ARN rather than the raw model ID; probing the ARN lets
+    # us report the downstream model as accessible to UI clients.
+    try:
+        if CLAUDE_INFERENCE_PROFILE:
+            try:
+                logger.info(f"Probing inference profile ARN: {CLAUDE_INFERENCE_PROFILE}")
+                # Use an Anthropic/Claude-style minimal probe body
+                probe_body = json.dumps({
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 5,
+                    "temperature": 0.1,
+                    "messages": [{"role": "user", "content": "test"}],
+                })
+                bedrock_client.invoke_model(
+                    modelId=CLAUDE_INFERENCE_PROFILE,
+                    body=probe_body,
+                    contentType="application/json",
+                    accept="application/json",
+                )
+                # If invocation succeeded, surface the known Claude 3.5 model id
+                if BEDROCK_MODEL_ANTHROPIC_CLAUDE35 not in accessible_models:
+                    accessible_models.append(BEDROCK_MODEL_ANTHROPIC_CLAUDE35)
+                    logger.info(f"✓ Inference profile probe succeeded; reporting {BEDROCK_MODEL_ANTHROPIC_CLAUDE35} as accessible")
+            except Exception as ex:
+                logger.debug(f"Inference profile probe failed: {str(ex)}")
+    except Exception:
+        pass
+
     return accessible_models
 
 
@@ -201,7 +245,7 @@ def summarize_page(
 
 def initialize():
     global bedrock_client
-    region = os.environ.get("REGION", "us-east-1")
+    region = os.environ.get("REGION", "ap-southeast-2")
     bedrock_client = boto3.client(service_name="bedrock-runtime", region_name=region)
 
 
@@ -215,6 +259,75 @@ def summarize_and_select_images(article_text: str, images_json: list[dict], mode
     Returns a list of bullet objects (may be empty on failure).
     """
     try:
+        # ----------------------------------------
+        # Generate suitable caption/title for each image (defensive)
+        # Collect S3 URIs (skip missing ones but preserve order)
+        s3_images = []
+        idx_map = []  # maps caption index -> images_json index
+        for i, image in enumerate(images_json):
+            s3_uri = image.get("s3_url") or image.get("s3_uri") or image.get("presigned_url")
+            if s3_uri:
+                s3_images.append(s3_uri)
+                idx_map.append(i)
+            else:
+                # Leave existing caption/title in place if present
+                logger.debug(f"Image at index {i} has no s3_url/presigned_url; skipping caption generation")
+
+        captions = []
+        titles = []
+        try:
+            if s3_images:
+                captions = batch_caption_s3_images(s3_images, _CAPTION_MODE)
+                titles = batch_caption_s3_images(s3_images, _TITLE_MODE)
+                # Log summary of caption/title generation for debugging
+                try:
+                    success_captions = sum(1 for c in captions if isinstance(c, dict) and c.get("result"))
+                    success_titles = sum(1 for t in titles if isinstance(t, dict) and t.get("result"))
+                    logger.info(f"Generated captions: {success_captions}/{len(s3_images)}, titles: {success_titles}/{len(s3_images)}")
+                    # Log per-image status (truncate long text)
+                    for k, s3 in enumerate(s3_images):
+                        cap = captions[k] if k < len(captions) else None
+                        tit = titles[k] if k < len(titles) else None
+                        cap_ok = isinstance(cap, dict) and cap.get("result")
+                        tit_ok = isinstance(tit, dict) and tit.get("result")
+                        cap_preview = (cap.get("result")[:200] + "...") if cap_ok and len(cap.get("result")) > 200 else (cap.get("result") if cap_ok else None)
+                        tit_preview = (tit.get("result")[:200] + "...") if tit_ok and len(tit.get("result")) > 200 else (tit.get("result") if tit_ok else None)
+                        logger.info(f"Caption/title for {s3}: caption_ok={bool(cap_ok)} title_ok={bool(tit_ok)} caption_preview={cap_preview} title_preview={tit_preview}")
+                except Exception:
+                    logger.debug("Failed to log caption/title summary", exc_info=True)
+        except Exception as e:
+            logger.warning(f"batch_caption_s3_images failed: {str(e)}")
+
+        # Apply results back into images_json, being defensive about missing keys
+        for j, orig_idx in enumerate(idx_map):
+            cap_entry = captions[j] if j < len(captions) else None
+            title_entry = titles[j] if j < len(titles) else None
+
+            # caption
+            caption_text = None
+            if isinstance(cap_entry, dict) and cap_entry.get("result"):
+                caption_text = cap_entry.get("result")
+            elif isinstance(cap_entry, dict) and cap_entry.get("error"):
+                logger.warning(f"Caption generation error for {cap_entry.get('s3_uri')}: {cap_entry.get('error')}")
+
+            # title
+            title_text = None
+            if isinstance(title_entry, dict) and title_entry.get("result"):
+                title_text = title_entry.get("result")
+            elif isinstance(title_entry, dict) and title_entry.get("error"):
+                logger.warning(f"Title generation error for {title_entry.get('s3_uri')}: {title_entry.get('error')}")
+
+            # Fallbacks: keep existing values or empty string
+            if caption_text is None:
+                caption_text = images_json[orig_idx].get("caption") or ""
+            if title_text is None:
+                title_text = images_json[orig_idx].get("title") or ""
+
+            images_json[orig_idx]["caption"] = caption_text
+            images_json[orig_idx]["title"] = title_text
+            images_json[orig_idx]["tags"] = images_json[orig_idx].get("tags", []) or []
+
+        # ----------------------------------------
         prompt = f"""You are given a long article and a list of candidate images (each includes title, caption/tags, and an S3 URL).
         Tasks:
         1) Produce 3 main bullet points summarizing the core ideas of the article (≤60 words each, no overlap).
@@ -253,11 +366,26 @@ def summarize_and_select_images(article_text: str, images_json: list[dict], mode
         # Build per-model bodies inside the loop so we don't send the wrong
         # schema and trigger ValidationException (schema violations).
 
-        # allow caller-provided model_id; otherwise use constant
+        # allow caller-provided model_id; otherwise use fallback list
         try_models = []
         if model_id:
             try_models.append(model_id)
-        try_models.append(BEDROCK_MODEL_ANTHROPIC_CLAUDE35)
+        
+        # Prefer inference profile ARN if set, otherwise use accessible models
+        if CLAUDE_INFERENCE_PROFILE:
+            try_models.append(CLAUDE_INFERENCE_PROFILE)
+        
+        # Add accessible models in order of preference (avoid the problematic 3.5 sonnet)  
+        try_models.extend([
+            "anthropic.claude-3-haiku-20240307-v1:0",
+            "anthropic.claude-3-sonnet-20240229-v1:0", 
+            "amazon.titan-text-express-v1",
+            BEDROCK_MODEL_ANTHROPIC_CLAUDE35  # keep as last resort
+        ])
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        try_models = [m for m in try_models if m and m not in seen and not seen.add(m)]
 
         last_exc = None
         out = None
