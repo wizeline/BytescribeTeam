@@ -14,7 +14,10 @@ from app.constants import (
     BEDROCK_MODEL_ANTHROPIC_CLAUDE35
 )
 from app.core.config import settings
+from .gen_captions import batch_caption_s3_images
 
+_CAPTION_MODE = "caption"
+_TITLE_MODE = "title"
 _DEFAULT_PROMPT = """
     Summarize the following text into exactly 3 main bullet points:
     - Each bullet point must be no longer than 100 words.
@@ -101,14 +104,14 @@ def summarize_and_select_images(article_text: str, images_json: list[dict]):
         * images_json: the list of images that has title, caption, tags & s3_url as below
             sample_images = [
                 {
-                    "title": "Application diagram",
-                    "caption": "How application works",
+                    "title": "AWS Lambda Workflow: Article to Video Conversion",
+                    "caption": "Diagram showing AWS Lambda-based workflows for article highlighting and video creation processes.",
                     "tags": ["application", "diagram"],
                     "s3_url": "s3://bytescribeteam/application_diagram.png"
                 },
                 {
-                    "title": "Stepfunction workflow",
-                    "caption": "Stepfunction for all tasks",
+                    "title": "Replay Generation Workflow: From Eligibility to Completion",
+                    "caption": "Flowchart depicting process for generating and managing article replays with video output options.",
                     "tags": ["stepfunction"],
                     "s3_url": "s3://bytescribeteam/stepfuction-workflow.png"
                 }
@@ -144,7 +147,17 @@ def summarize_and_select_images(article_text: str, images_json: list[dict]):
         {json.dumps(images_json, ensure_ascii=False)}
         >>>
     """
+    # ----------------------------------------
+    # Generate suitable caption/tittle for each image
+    s3_images = [image["s3_url"] for image in images_json]
+    captions = batch_caption_s3_images(s3_images, _CAPTION_MODE)
+    titles = batch_caption_s3_images(s3_images, _TITLE_MODE)
+    for idx in range(len(images_json)):
+        images_json[idx]["caption"] = captions[idx]["result"]
+        images_json[idx]["title"] = titles[idx]["result"]
+        images_json[idx]["tags"] = []
 
+    # ----------------------------------------
     body = {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": 8192,
