@@ -62,6 +62,56 @@ def move_s3_object(bucket, old_key, new_key):
         print(f"WARNING: Failed to archive object {old_key}. Error: {e}")
 
 
+# --- UTILITY FUNCTION: DYNAMIC SUBTITLE GENERATOR (FIXED for MoviePy 2.1.1) ---
+
+
+def generate_timed_text_clips(
+    text: str, duration: float, font_path: str, max_words_per_chunk: int = 4
+):
+    """
+    Splits text into chunks (max_words_per_chunk) and creates time-coded MoviePy TextClips.
+    Distributes the total segment duration evenly across all text chunks.
+    Uses 'text' and 'font_size' as required by this MoviePy version.
+    """
+    words = text.split()
+    chunks = []
+
+    # 1. Chunk the text
+    for i in range(0, len(words), max_words_per_chunk):
+        chunk = " ".join(words[i : i + max_words_per_chunk])
+        chunks.append(chunk)
+
+    if not chunks:
+        return []
+
+    # 2. Calculate even duration per chunk
+    time_per_chunk = duration / len(chunks)
+
+    timed_clips = []
+    current_time = 0.0
+
+    # 3. Create time-coded clips
+    for chunk in chunks:
+        clip = (
+            TextClip(
+                text=chunk,  # Confirmed working parameter
+                font=font_path,
+                font_size=40,  # Confirmed working parameter
+                color="white",
+                stroke_color="black",
+                stroke_width=2,
+            )
+            .with_duration(time_per_chunk)
+            .with_start(current_time)
+            # Position set to 'center' initially; y-position will be set relative to video.h later
+            .with_position("center")
+        )
+        timed_clips.append(clip)
+        current_time += time_per_chunk
+
+    return timed_clips
+
+
 # --- CORE FUNCTION: COMBINE VIDEOS ---
 
 
@@ -130,10 +180,9 @@ def combine_videos(video_paths: list, final_output_path: str):
             final_clip.close()
 
 
-# --- CORE FUNCTION: CREATE VIDEO (WITH DIRECT DURATION ASSIGNMENT) ---
+# --- CORE FUNCTION: CREATE VIDEO (WITH DYNAMIC SUBTITLES) ---
 
 
-# UPDATED: Added segment_text as an argument
 def create_video_from_images_and_audio(
     image_folder: str,
     audio_path: str,
@@ -143,14 +192,14 @@ def create_video_from_images_and_audio(
 ):
     """
     Creates a video from a sequence of images and a single audio file from local paths.
-    Pads the video duration to a minimum of 1.0s if the audio is too short.
+    Pads the video duration to a minimum of 1.0s.
+    NOW INCLUDES DYNAMIC SUBTITLE CHUNKING.
     """
     if not os.path.isfile(audio_path):
         print(f"Error: The specified audio file '{audio_path}' does not exist.")
         return False
 
-    # --- IMAGE SELECTION LOGIC ---
-    # 1. Check for images in the segment's dedicated local folder (where S3 download put it)
+    # --- IMAGE SELECTION LOGIC (Unchanged) ---
     local_image_files = [
         os.path.join(image_folder, img)
         for img in os.listdir(image_folder)
@@ -194,6 +243,7 @@ def create_video_from_images_and_audio(
     audio_clip = None
     video_clip = None
     clips = []
+    subtitle_clips = []  # List to hold the new dynamic subtitle clips
 
     try:
         # Step 1: Load the audio clip and determine segment duration.
@@ -231,16 +281,28 @@ def create_video_from_images_and_audio(
         # Step 4: Set the audio.
         video_clip.audio = audio_clip
 
+        # --- NEW DYNAMIC SUBTITLE LOGIC ---
         font_file = "/var/task/fonts/SubtitleFont.ttf"
 
-        txt_clip = (
-            # UPDATED: Use the segment_text argument
-            TextClip(font=font_file, text=segment_text, font_size=40, color="white")
-            .with_duration(video_segment_duration)
-            .with_position(("center", video_clip.h * 0.9))
+        # Generate the list of timed subtitle clips (4 words per chunk)
+        subtitle_clips = generate_timed_text_clips(
+            segment_text, video_segment_duration, font_file, max_words_per_chunk=4
         )
 
-        video_clip_edit = CompositeVideoClip([video_clip, txt_clip])
+        # Apply the final relative position and collect all elements
+        positioned_subtitle_clips = []
+        for clip in subtitle_clips:
+            # Set the y-position relative to the height of the base video clip
+            clip = clip.with_position(("center", video_clip.h * 0.9))
+            positioned_subtitle_clips.append(clip)
+
+        # The base list for CompositeVideoClip is the video clip, followed by all subtitles
+        composite_elements = [video_clip] + positioned_subtitle_clips
+
+        # Create the composite clip
+        video_clip_edit = CompositeVideoClip(composite_elements, size=video_clip.size)
+        video_clip_edit.duration = video_segment_duration
+        # --- END NEW DYNAMIC SUBTITLE LOGIC ---
 
         # Step 5: Write the video file.
         video_clip_edit.write_videofile(
@@ -262,9 +324,13 @@ def create_video_from_images_and_audio(
         if clips:
             for clip in clips:
                 clip.close()
+        # Clean up the new subtitle clips
+        if subtitle_clips:
+            for clip in subtitle_clips:
+                clip.close()
 
 
-# --- FINAL LAMBDA HANDLER ---
+# --- FINAL LAMBDA HANDLER (Unchanged) ---
 
 
 def lambda_handler(event, context):
