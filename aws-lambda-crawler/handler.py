@@ -504,6 +504,39 @@ def lambda_handler(event, context=None):
                 print(f"S3 upload pass failed: {exc}")
 
             if media_refs:
+                # Reorder media_refs to match the original order of images/videos
+                # as they appeared in the parsed crawl results. This ensures the
+                # uploaded list aligns with the client's original ordering.
+                try:
+                    # Build an ordered list of source URLs from parsed images and videos
+                    order_list = []
+                    for img in parsed.get("images", []) or []:
+                        src = img.get("src")
+                        if src and src not in order_list:
+                            order_list.append(src)
+                    for vid in parsed.get("videos", []) or []:
+                        for srcobj in vid.get("sources", []) or []:
+                            src = srcobj.get("src")
+                            if src and src not in order_list:
+                                order_list.append(src)
+
+                    if order_list:
+                        order_index = {u: i for i, u in enumerate(order_list)}
+                        # capture original indices to keep stable ordering for
+                        # items not present in order_list
+                        orig_index = {id(m): i for i, m in enumerate(media_refs)}
+
+                        media_refs = sorted(
+                            media_refs,
+                            key=lambda m: (
+                                order_index.get(m.get("source_url"), 10 ** 9),
+                                orig_index.get(id(m), 0),
+                            ),
+                        )
+                except Exception:
+                    # Be defensive: if anything goes wrong, keep original order
+                    pass
+
                 kwargs["media_refs"] = media_refs
                 # Also expose the uploaded media list in the response so API clients can use presigned URLs
                 response_payload["uploaded_media"] = media_refs
