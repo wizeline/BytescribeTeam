@@ -14,12 +14,7 @@ from moviepy import (
     ImageClip,
     TextClip,
     CompositeVideoClip,
-    ColorClip,
 )
-
-# --- FUNCTIONAL EFFECTS: Directly import the modules we need from moviepy.video.fx ---
-# This configuration is based on successful debugging for your specific MoviePy environment.
-from moviepy.video.fx import FadeIn, FadeOut
 
 import moviepy.config as mpy_config
 from datetime import datetime
@@ -45,8 +40,8 @@ ARCHIVE_PREFIX = "processed-input/"
 TARGET_WIDTH = 1920
 TARGET_HEIGHT = 1080
 
-# Define a stable minimum fade duration (in seconds)
-FADE_DURATION = 0.1
+# --- NEW: Path to the pre-rendered black transition video ---
+TRANSITION_VIDEO_PATH = "/var/task/black_transition.mp4"
 
 
 # --- UTILITY FUNCTION: S3 Object Move (Unchanged) ---
@@ -283,7 +278,7 @@ def combine_videos(video_paths: list, final_output_path: str):
             final_clip.close()
 
 
-# --- CORE FUNCTION: CREATE VIDEO (WITH CONSISTENT IMAGE PROCESSING AND STABLE FADES) ---
+# --- CORE FUNCTION: CREATE VIDEO (STABLE BASELINE) ---
 
 
 def create_video_from_images_and_audio(
@@ -296,16 +291,26 @@ def create_video_from_images_and_audio(
     """
     Creates a video from a sequence of images and a single audio file from local paths.
     Pads the video duration to a minimum of 1.0s.
-    Implements runtime resizing and cropping for ALL images and applies a stable fade effect.
+    Fades have been removed to return to a stable baseline.
     """
     if not os.path.isfile(audio_path):
         print(f"Error: The specified audio file '{audio_path}' does not exist.")
         return False
 
-    # Define a stable, short fade duration (reverting complexity for reliability)
-    FADE_DURATION_SEGMENT = 0.1
+    # --- DURATION CALCULATION (Simplified) ---
+    try:
+        audio_clip_temp = AudioFileClip(audio_path)
+        audio_duration = audio_clip_temp.duration
+        audio_clip_temp.close()
+    except Exception as e:
+        print(f"FATAL: Could not load audio to determine duration: {e}")
+        return False
 
-    # --- IMAGE SELECTION LOGIC ---
+    MIN_ENCODE_DURATION = 1.0
+    video_segment_duration = max(audio_duration, MIN_ENCODE_DURATION)
+    # --- END DURATION CALCULATION ---
+
+    # --- IMAGE SELECTION AND PROCESSING LOGIC ---
     local_image_files = [
         os.path.join(image_folder, img)
         for img in os.listdir(image_folder)
@@ -317,13 +322,12 @@ def create_video_from_images_and_audio(
 
     initial_image_paths = []
 
-    # -------------------------------------------------------------------------------------
     # DETERMINE INITIAL IMAGE LIST (Downloaded or Fallback)
-    # -------------------------------------------------------------------------------------
     if not image_files:
-        # 2. Fallback to a single, random sample image
         fallback_images = glob.glob(os.path.join(FALLBACK_IMAGE_DIR, "*.png"))
         fallback_images.extend(glob.glob(os.path.join(FALLBACK_IMAGE_DIR, "*.jpg")))
+
+        # *** os.path.join ***
         fallback_images.extend(glob.glob(os.path.join(FALLBACK_IMAGE_DIR, "*.jpeg")))
 
         if fallback_images:
@@ -339,39 +343,31 @@ def create_video_from_images_and_audio(
             )
             return False
     else:
-        # If segment images are found, use them
         initial_image_paths = image_files
 
-    # -------------------------------------------------------------------------------------
     # PROCESS AND RESIZE IMAGES (Copy and Overwrite)
-    # -------------------------------------------------------------------------------------
     final_image_paths = []
     temp_copies_to_cleanup = []
 
     for path in initial_image_paths:
         current_path = path
 
-        # 1. If it's a fallback image (not in /tmp), COPY it to the writable segment folder first
         if not path.startswith(tmp_dir):
             base_name = os.path.basename(path).rsplit(".", 1)[0]
             temp_path = os.path.join(image_folder, f"{base_name}_temp_copy.png")
-
             shutil.copy(path, temp_path)
             current_path = temp_path
             temp_copies_to_cleanup.append(temp_path)
 
-        # 2. Resize the image, OVERWRITING the image file (which is guaranteed to be in /tmp)
         resized_path = resize_and_crop_image(
             current_path, TARGET_WIDTH, TARGET_HEIGHT, output_path=current_path
         )
         final_image_paths.append(resized_path)
 
-    image_files = (
-        final_image_paths  # This list now contains only the paths to 1920x1080 images
-    )
-    # -------------------------------------------------------------------------------------
+    image_files = final_image_paths
+    # --- END IMAGE SELECTION AND PROCESSING LOGIC ---
 
-    print(f"Using {len(image_files)} consistent 1920x1080 image(s). Creating video...")
+    print(f"Content duration: {video_segment_duration:.2f}s.")
 
     # --- CWD OVERRIDE FOR SUBPROCESS SAFETY ---
     original_cwd = os.getcwd()
@@ -382,31 +378,22 @@ def create_video_from_images_and_audio(
     video_clip = None
     clips = []
     subtitle_clips = []
+    video_clip_edit = None
 
     try:
-        # 1. Load the audio clip and determine segment duration.
+        # 1. Load the audio clip
         audio_clip = AudioFileClip(audio_path)
-        audio_duration = audio_clip.duration
 
-        MIN_ENCODE_DURATION = 1.0
-        video_segment_duration = max(
-            audio_duration, MIN_ENCODE_DURATION
-        )  # This is the final duration
-
-        # 2. Calculate the duration for each image based on the final video duration.
+        # 2. Calculate the duration for each image
         num_images = len(image_files)
         image_duration = video_segment_duration / num_images
         print(f"Each image will be shown for {image_duration:.2f} seconds.")
 
         # 3. Create and concatenate image clips.
         clips = [ImageClip(path, duration=image_duration) for path in image_files]
-
-        # Assign concatenation result first.
         video_clip = concatenate_videoclips(clips, method="compose")
-
-        # Assign duration directly to the attribute to bypass unsupported method.
         video_clip.duration = video_segment_duration
-        video_clip.audio = audio_clip
+        video_clip.audio = audio_clip  # Audio starts immediately
 
         # --- DYNAMIC SUBTITLE LOGIC ---
         font_file = "/var/task/fonts/SubtitleFont.ttf"
@@ -417,23 +404,16 @@ def create_video_from_images_and_audio(
 
         positioned_subtitle_clips = []
         for clip in subtitle_clips:
-            # Subtitle timing is relative to the start of this segment
             clip = clip.with_position(("center", video_clip.h * 0.9))
             positioned_subtitle_clips.append(clip)
+        # --- END DYNAMIC SUBTITLE LOGIC ---
 
-        composite_elements = [video_clip] + positioned_subtitle_clips
-
-        # Final composite clip for this segment
-        video_clip_edit = CompositeVideoClip(composite_elements, size=video_clip.size)
+        # 4. BUILD THE FINAL COMPOSITE CLIP (No Fades Applied)
+        video_clip_edit = CompositeVideoClip(
+            [video_clip] + positioned_subtitle_clips, size=video_clip.size
+        )
         video_clip_edit.duration = video_segment_duration
-
-        # --- APPLY STABLE FADE IN/OUT EFFECTS ---
-        print(f"Applying stable {FADE_DURATION_SEGMENT}s fade-in and fade-out...")
-
-        # Apply FadeOut first (at the end), then FadeIn (at the start)
-        video_clip_edit = FadeOut(FADE_DURATION_SEGMENT).apply(video_clip_edit)
-        video_clip_edit = FadeIn(FADE_DURATION_SEGMENT).apply(video_clip_edit)
-        # --- END FADE EFFECTS ---
+        video_clip_edit.audio = video_clip.audio
 
         # Step 5: Write the video file.
         video_clip_edit.write_videofile(
@@ -448,11 +428,13 @@ def create_video_from_images_and_audio(
 
     finally:
         os.chdir(original_cwd)
-        # Cleanup clips
+        # Cleanup clips (Explicitly close all clips)
         if audio_clip:
             audio_clip.close()
         if video_clip:
             video_clip.close()
+        if video_clip_edit:
+            video_clip_edit.close()
         if clips:
             for clip in clips:
                 clip.close()
@@ -469,7 +451,7 @@ def create_video_from_images_and_audio(
                     print(f"Warning: Failed to cleanup temp image file {path}: {e}")
 
 
-# --- FINAL LAMBDA HANDLER (FIXED S3 KEY DECODING) ---
+# --- FINAL LAMBDA HANDLER (WITH TRANSITION LOGIC) ---
 
 
 def lambda_handler(event, context):
@@ -513,10 +495,10 @@ def lambda_handler(event, context):
         highlights_data.sort(key=lambda x: x.get("order", 9999))
         print(f"Found {len(highlights_data)} segments. Sorted by 'order'.")
 
-        local_videos_to_combine = []
+        intermediate_video_paths = []
         successful_audio_keys = []  # List to track S3 keys to archive
 
-        # 4. Loop through each ordered segment
+        # 4. Loop through each ordered segment to create intermediate videos
         for i, segment in enumerate(highlights_data):
             order = segment.get("order", i)
             audio_s3_key = segment.get("audio")
@@ -546,7 +528,7 @@ def lambda_handler(event, context):
 
             # --- S3 IMAGE DOWNLOAD ---
             if image_s3_key:
-                # *** FIX APPLIED: Decode the S3 key before using it for download ***
+                # FIX APPLIED: Decode the S3 key before using it for download
                 decoded_image_s3_key = unquote_plus(image_s3_key, encoding="utf-8")
                 print(
                     f"S3_KEY found: Attempting to download image from {decoded_image_s3_key}"
@@ -590,19 +572,33 @@ def lambda_handler(event, context):
             )
 
             if success:
-                local_videos_to_combine.append(intermediate_video_path)
+                intermediate_video_paths.append(intermediate_video_path)
                 successful_audio_keys.append(audio_s3_key)  # Record key for archival
 
             # Clean up local segment files (CRITICAL for /tmp limits).
             shutil.rmtree(local_subfolder, ignore_errors=True)
 
         # 5. Combine all videos and upload the final result
-        if local_videos_to_combine:
-            # --- UPDATED FILENAME HERE ---
+        if intermediate_video_paths:
+
+            # --- NEW: Interleave Segments with Black Transition Video ---
+            final_paths_to_combine = []
+
+            # Insert the transition video path after every segment except the last one
+            for i, video_path in enumerate(intermediate_video_paths):
+                final_paths_to_combine.append(video_path)
+
+                # Add transition unless this is the very last video clip
+                if i < len(intermediate_video_paths) - 1:
+                    # The transition video is a pre-rendered black clip
+                    final_paths_to_combine.append(TRANSITION_VIDEO_PATH)
+
+            # Define the final output file name
             final_output_file_name = f"{compilation_id}.mp4"
             final_output_file = os.path.join(tmp_dir, final_output_file_name)
 
-            combine_videos(local_videos_to_combine, final_output_file)
+            # Now call the combine_videos function which expects only paths
+            combine_videos(final_paths_to_combine, final_output_file)
 
             # Define the final S3 key
             output_s3_key = f"output_videos/{final_output_file_name}"
@@ -634,7 +630,7 @@ def lambda_handler(event, context):
             )
 
             # Final cleanup of all local files
-            for path in local_videos_to_combine:
+            for path in intermediate_video_paths:
                 if os.path.exists(path):
                     os.remove(path)
             if os.path.exists(final_output_file):
