@@ -20,6 +20,11 @@ export default function App() {
   const [availableModels, setAvailableModels] = useState([]);
   // New client-side options
   const [preferPresigned, setPreferPresigned] = useState(true);
+  const [asyncMode, setAsyncMode] = useState(false);
+  const [jobId, setJobId] = useState(null);
+  const [jobStatus, setJobStatus] = useState(null);
+  const [jobProgress, setJobProgress] = useState(null);
+  const [polling, setPolling] = useState(false);
 
   const availableModelOptions = [
     { value: "", label: "Default (amazon.titan-text-express-v1)" },
@@ -42,9 +47,18 @@ export default function App() {
     },
   ];
 
+  // Use the same model identifier used in the backend constants for easy checking
+  const BEDROCK_MODEL_ANTHROPIC_CLAUDE35 =
+    "anthropic.claude-3-5-sonnet-20240620-v1:0";
+
   async function checkModelAccess() {
     setCheckingModels(true);
     try {
+      if (!API_URL || API_URL === "REPLACE_WITH_API_URL") {
+        throw new Error(
+          "API URL not configured. Set VITE_API_URL in your .env or update API_URL in App.jsx",
+        );
+      }
       const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -56,8 +70,34 @@ export default function App() {
       }
     } catch (err) {
       console.error("Error checking model access:", err);
+      setError(`Error checking model access: ${err.message}`);
     } finally {
       setCheckingModels(false);
+    }
+  }
+
+  // Poll job status helper
+  async function checkJobStatus(id) {
+    try {
+      if (!API_URL || API_URL === "REPLACE_WITH_API_URL") {
+        throw new Error(
+          "API URL not configured. Set VITE_API_URL in your .env or update API_URL in App.jsx",
+        );
+      }
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "job_status", job_id: id }),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(`HTTP ${res.status}: ${t}`);
+      }
+      const data = await res.json();
+      return data;
+    } catch (err) {
+      console.error("Error checking job status:", err);
+      return null;
     }
   }
 
@@ -68,12 +108,22 @@ export default function App() {
     }
   }, [enableSummary]);
 
+  // Derived helper: whether Claude 3.5 is reported accessible by the backend
+  const isClaude35Available = availableModels.includes(
+    BEDROCK_MODEL_ANTHROPIC_CLAUDE35,
+  );
+
   async function handleSubmit(e) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     setResult(null);
     try {
+      if (!API_URL || API_URL === "REPLACE_WITH_API_URL") {
+        throw new Error(
+          "API URL not configured. Set VITE_API_URL in your .env or update API_URL in App.jsx",
+        );
+      }
       const requestBody = { url, full };
 
       // Add Bedrock parameters if summary is enabled
@@ -90,20 +140,59 @@ export default function App() {
       const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify(
+          asyncMode ? { ...requestBody, async: true } : requestBody,
+        ),
       });
       if (!res.ok) {
         const t = await res.text();
         throw new Error(`HTTP ${res.status}: ${t}`);
       }
       const data = await res.json();
-      setResult(data);
+      // If async mode is enabled, API returns job_id + basic_content
+      if (asyncMode && data && data.job_id) {
+        setJobId(data.job_id);
+        setJobStatus(data.status || "processing");
+        setJobProgress(data.message || null);
+        setPolling(true);
+      } else {
+        setResult(data);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   }
+
+  // Polling effect
+  useEffect(() => {
+    if (!polling || !jobId) return;
+    let mounted = true;
+    const interval = setInterval(async () => {
+      const status = await checkJobStatus(jobId);
+      if (!mounted || !status) return;
+      setJobStatus(status.status || null);
+      setJobProgress(status.progress || status.message || null);
+      if (status.status === "completed") {
+        setPolling(false);
+        setJobId(null);
+        // job may include result under 'result' or 'summary' or full body
+        if (status.result) setResult(status.result);
+        else if (status.summary)
+          setResult({ summary: status.summary, ...status });
+        else setResult(status);
+      } else if (status.status === "failed") {
+        setPolling(false);
+        setJobId(null);
+        setError(status.error || "Job failed");
+      }
+    }, 3000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [polling, jobId]);
 
   return (
     <div style={{ padding: 20, fontFamily: "sans-serif" }}>
@@ -175,6 +264,48 @@ export default function App() {
               </div>
             )}
 
+            {/* Claude 3.5 quick-check and action */}
+            <div
+              style={{
+                marginBottom: 8,
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+              }}
+            >
+              <div style={{ fontSize: 12 }}>
+                Claude 3.5 Sonnet:
+                <strong
+                  style={{
+                    marginLeft: 6,
+                    color: isClaude35Available ? "#198754" : "#6c757d",
+                  }}
+                >
+                  {isClaude35Available ? "Available ✓" : "Not available"}
+                </strong>
+              </div>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setModelId(BEDROCK_MODEL_ANTHROPIC_CLAUDE35)}
+                  disabled={!isClaude35Available}
+                  style={{
+                    fontSize: 12,
+                    padding: "4px 8px",
+                    backgroundColor: isClaude35Available
+                      ? "#0d6efd"
+                      : "#e9ecef",
+                    color: isClaude35Available ? "white" : "#6c757d",
+                    border: "none",
+                    borderRadius: 4,
+                    cursor: isClaude35Available ? "pointer" : "not-allowed",
+                  }}
+                >
+                  Use Claude 3.5
+                </button>
+              </div>
+            </div>
+
             <div style={{ marginBottom: 8 }}>
               <label
                 style={{ display: "block", fontSize: 12, marginBottom: 4 }}
@@ -243,12 +374,45 @@ export default function App() {
             />{" "}
             Prefer presigned URLs for media (if available)
           </label>
+          <label style={{ marginLeft: 16 }}>
+            <input
+              type="checkbox"
+              checked={asyncMode}
+              onChange={(e) => setAsyncMode(e.target.checked)}
+            />{" "}
+            Async processing (background job)
+          </label>
         </div>
 
         <button type="submit" disabled={loading || !url}>
           {loading ? "Crawling…" : "Crawl"}
         </button>
       </form>
+
+      {/* Async job status panel */}
+      {(polling || jobStatus) && (
+        <div style={{ marginTop: 12, padding: 8, border: "1px solid #ddd" }}>
+          <strong>Job Status</strong>
+          <div style={{ fontSize: 13, marginTop: 6 }}>
+            <div>
+              <strong>Job ID:</strong> {jobId || "(no active job)"}
+            </div>
+            <div>
+              <strong>Status:</strong> {jobStatus || "-"}
+            </div>
+            {jobProgress && (
+              <div style={{ marginTop: 6 }}>
+                <strong>Progress:</strong> {jobProgress}
+              </div>
+            )}
+            {polling && (
+              <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
+                Polling for updates…
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {error && <div style={{ color: "red" }}>Error: {error}</div>}
 
@@ -655,6 +819,12 @@ export default function App() {
         <div>
           API: <code>{API_URL}</code>
         </div>
+        {!API_URL || API_URL === "REPLACE_WITH_API_URL" ? (
+          <div style={{ color: "#b35c00", marginTop: 8 }}>
+            Warning: API URL not configured. Set <code>VITE_API_URL</code> in
+            <code>.env</code> or update the constant in <code>App.jsx</code>.
+          </div>
+        ) : null}
         <div>Set `VITE_API_URL` in `.env` or environment when running.</div>
         <div
           style={{

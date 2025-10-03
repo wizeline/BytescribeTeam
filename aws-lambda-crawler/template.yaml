@@ -12,6 +12,11 @@ Parameters:
   S3UploadPrefix:
     Type: String
     Description: 'Optional S3 key prefix (folder) for runtime uploaded media'
+  # Optional inference profile ARN to allow invoking certain Anthropic Claude models
+  CLAUDEInferenceProfileArn:
+    Type: String
+    Description: 'Optional Bedrock inference profile ARN that contains Claude models (leave empty if not used)'
+    Default: ''
 
 Resources:
   CrawlerExecutionRole:
@@ -49,7 +54,12 @@ Resources:
                 Action:
                   - s3:PutObject
                   - s3:PutObjectAcl
+                  - s3:GetObject
                 Resource: !Sub 'arn:aws:s3:::${S3UploadBucket}/*'
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:aws-lambda-crawler'
 
   CrawlerFunction:
     Type: AWS::Serverless::Function
@@ -57,8 +67,8 @@ Resources:
       FunctionName: aws-lambda-crawler
       Handler: handler.lambda_handler
       Runtime: python3.10
-      Timeout: 30
-      MemorySize: 128
+      Timeout: 900
+      MemorySize: 1024
       Description: Minimal HTML crawler
       Role: !GetAtt CrawlerExecutionRole.Arn
       Policies:
@@ -72,6 +82,8 @@ Resources:
           # Runtime S3 settings for uploading media and generating presigned URLs
           S3_UPLOAD_BUCKET: !Ref S3UploadBucket
           S3_UPLOAD_PREFIX: !Ref S3UploadPrefix
+          # Optional inference profile ARN for Claude models
+          CLAUDE_INFERENCE_PROFILE_ARN: !Ref CLAUDEInferenceProfileArn
       Events:
         Api:
           Type: Api
@@ -84,6 +96,20 @@ Resources:
     Type: AWS::Serverless::Api
     Properties:
       StageName: Prod
+      # Increase API Gateway timeout to maximum (29 seconds)
+      DefinitionBody:
+        openapi: 3.0.1
+        paths:
+          /crawl:
+            post:
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CrawlerFunction.Arn}/invocations'
+                timeoutInMillis: 29000
+              responses:
+                default:
+                  description: Default response
       Cors:
         AllowMethods: "'POST,OPTIONS'"
         AllowHeaders: "'Content-Type,Authorization'"

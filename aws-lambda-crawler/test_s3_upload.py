@@ -38,7 +38,7 @@ def test_upload(test_url="https://via.placeholder.com/150", bucket=None):
         return False
     
     # Upload to S3 (mimic handler logic)
-    region = os.getenv("REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-1"
+    region = os.getenv("REGION") or os.getenv("AWS_DEFAULT_REGION") or "ap-southeast-2"
     s3_config = BotoConfig(signature_version="s3v4", region_name=region)
     s3_client = boto3.client("s3", config=s3_config)
     

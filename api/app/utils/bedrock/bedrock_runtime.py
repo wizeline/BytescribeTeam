@@ -178,6 +178,45 @@ def summarize_and_select_images(article_text: str, images_json: list[dict]):
     text = json.loads(out["content"][0].get("text", {})).get("bullets", [])
     print("\n\n--------------------------------")
     print(json.dumps(text, indent=4))
+
+    # Enrich returned bullets: attach title, caption and tags for each image
+    try:
+        # Build lookup from image URLs to metadata
+        lookup = {}
+        for img in images_json or []:
+            for key in ("s3_url", "presigned_url", "source_url"):
+                v = img.get(key)
+                if v:
+                    lookup[v] = img
+
+        enriched = []
+        if isinstance(text, list):
+            for b in text:
+                if not isinstance(b, dict):
+                    enriched.append(b)
+                    continue
+                nb = dict(b)
+                imgs = nb.get("image_url") or nb.get("image_urls") or []
+                images_enriched = []
+                if isinstance(imgs, list):
+                    for it in imgs:
+                        if isinstance(it, dict):
+                            images_enriched.append(it)
+                            continue
+                        meta = lookup.get(it) or {}
+                        images_enriched.append({
+                            "image_url": it,
+                            "title": meta.get("title"),
+                            "caption": meta.get("caption"),
+                            "tags": meta.get("tags") or [],
+                        })
+                nb["images"] = images_enriched
+                enriched.append(nb)
+            return enriched
+    except Exception:
+        # If enrichment fails for any reason, return raw text as before
+        pass
+
     return text
 
 

@@ -23,7 +23,7 @@ def diagnose_s3_object(bucket, key):
     print("=" * 70)
     
     # Create S3 client
-    region = os.getenv("REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-1"
+    region = os.getenv("REGION") or os.getenv("AWS_DEFAULT_REGION") or "ap-southeast-2"
     s3_config = BotoConfig(signature_version="s3v4", region_name=region)
     s3_client = boto3.client("s3", config=s3_config)
     
