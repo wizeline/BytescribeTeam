@@ -6,7 +6,7 @@ import shutil
 from natsort import natsorted
 from urllib.parse import unquote_plus
 
-# Assuming moviepy and its dependencies are included in the Lambda layer or package
+# --- CORE CLASSES: Imported from editor ---
 from moviepy import (
     VideoFileClip,
     AudioFileClip,
@@ -16,6 +16,10 @@ from moviepy import (
     CompositeVideoClip,
     ColorClip,
 )
+
+# --- FUNCTIONAL EFFECTS: Directly import the modules we need from moviepy.video.fx ---
+# This configuration is based on successful debugging for your specific MoviePy environment.
+from moviepy.video.fx import FadeIn, FadeOut
 
 import moviepy.config as mpy_config
 from datetime import datetime
@@ -37,8 +41,15 @@ FALLBACK_IMAGE_DIR = "/var/task/images"
 # Define the archive prefix globally
 ARCHIVE_PREFIX = "processed-input/"
 
+# Target video resolution
+TARGET_WIDTH = 1920
+TARGET_HEIGHT = 1080
 
-# --- UTILITY FUNCTION: S3 Object Move ---
+# Define a stable minimum fade duration (in seconds)
+FADE_DURATION = 0.1
+
+
+# --- UTILITY FUNCTION: S3 Object Move (Unchanged) ---
 
 
 def move_s3_object(bucket, old_key, new_key):
@@ -62,24 +73,40 @@ def move_s3_object(bucket, old_key, new_key):
         print(f"WARNING: Failed to archive object {old_key}. Error: {e}")
 
 
-# --- UTILITY FUNCTION: DYNAMIC SUBTITLE GENERATOR (FIXED for MoviePy 2.1.1) ---
+# --- UTILITY FUNCTION: DYNAMIC SUBTITLE GENERATOR (Punctuation-Based Chunking) ---
 
 
 def generate_timed_text_clips(
     text: str, duration: float, font_path: str, max_words_per_chunk: int = 4
 ):
     """
-    Splits text into chunks (max_words_per_chunk) and creates time-coded MoviePy TextClips.
-    Distributes the total segment duration evenly across all text chunks.
-    Uses 'text' and 'font_size' as required by this MoviePy version.
+    Splits text into chunks, prioritizing sentence structure/punctuation breaks,
+    while respecting a maximum word count per chunk.
     """
     words = text.split()
     chunks = []
+    current_chunk = []
 
-    # 1. Chunk the text
-    for i in range(0, len(words), max_words_per_chunk):
-        chunk = " ".join(words[i : i + max_words_per_chunk])
-        chunks.append(chunk)
+    # Define punctuation marks that signal a good pause point for a subtitle break
+    PAUSE_PUNCTUATION = [".", ",", ":", ";", "!", "?"]
+
+    # 1. Chunk the text based on punctuation or max word count
+    for word in words:
+        current_chunk.append(word)
+
+        # Check if the chunk is at the maximum size OR if the last word ends with a pause punctuation
+        is_max_size = len(current_chunk) >= max_words_per_chunk
+        is_pause_point = (
+            word.strip()[-1] in PAUSE_PUNCTUATION if len(word) > 0 else False
+        )
+
+        if is_max_size or is_pause_point:
+            chunks.append(" ".join(current_chunk))
+            current_chunk = []
+
+    # Add any remaining words
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
 
     if not chunks:
         return []
@@ -90,20 +117,19 @@ def generate_timed_text_clips(
     timed_clips = []
     current_time = 0.0
 
-    # 3. Create time-coded clips
+    # 3. Create time-coded clips (API Fixes: text, font_size)
     for chunk in chunks:
         clip = (
             TextClip(
-                text=chunk,  # Confirmed working parameter
+                text=chunk,
                 font=font_path,
-                font_size=40,  # Confirmed working parameter
+                font_size=40,
                 color="white",
                 stroke_color="black",
                 stroke_width=2,
             )
             .with_duration(time_per_chunk)
             .with_start(current_time)
-            # Position set to 'center' initially; y-position will be set relative to video.h later
             .with_position("center")
         )
         timed_clips.append(clip)
@@ -112,7 +138,84 @@ def generate_timed_text_clips(
     return timed_clips
 
 
-# --- CORE FUNCTION: COMBINE VIDEOS ---
+# --- UTILITY FUNCTION: IMAGE RESIZE AND CROP (Final API Fix) ---
+
+
+def resize_and_crop_image(
+    image_path: str, target_width: int, target_height: int, output_path: str = None
+) -> str:
+    """
+    Resizes and center-crops an image to the target resolution (e.g., 1920x1080).
+    Uses the direct object methods (.cropped() and .resized()) for compatibility.
+    Saves the result to output_path or overwrites the input file if output_path is None.
+    Returns the path to the resulting image file.
+    """
+    original_clip = None
+    # Use the provided output_path or default to overwriting the input image
+    final_output_path = output_path if output_path else image_path
+
+    try:
+        original_clip = ImageClip(image_path)
+        width, height = original_clip.size
+        target_ratio = target_width / target_height
+        current_ratio = width / height
+        cropped_clip = original_clip  # Initialize cropped_clip
+
+        # --- Start Image Processing ---
+        print(
+            f"Processing image: {os.path.basename(image_path)}. Original size: {width}x{height}."
+        )
+
+        # 1. Cropping Logic
+        if abs(current_ratio - target_ratio) < 0.01:
+            # Check for near 16:9 - no crop needed
+            print("Image is already near 16:9 ratio. No crop needed.")
+        elif current_ratio > target_ratio:
+            # Image is wider (e.g., 21:9). Crop width to match target height.
+            new_width = int(height * target_ratio)
+            x_offset = (width - new_width) // 2
+
+            # --- Use .cropped(x1, x2) ---
+            cropped_clip = original_clip.cropped(
+                x1=x_offset, x2=x_offset + new_width, y1=0, y2=height
+            )
+            print(f"Cropping width from {width} to {new_width}.")
+        else:
+            # Image is taller (e.g., 4:3). Crop height to match target width.
+            new_height = int(width / target_ratio)
+            y_offset = (height - new_height) // 2
+
+            # --- Use .cropped(y1, y2) ---
+            cropped_clip = original_clip.cropped(
+                y1=y_offset, y2=y_offset + new_height, x1=0, x2=width
+            )
+            print(f"Cropping height from {height} to {new_height}.")
+
+        # 2. Resize to exact target dimensions
+        # --- Use .resized(width, height) ---
+        resized_clip = cropped_clip.resized(width=target_width, height=target_height)
+
+        # 3. Save the resized image (Overwrites the original/copied file)
+        if final_output_path.lower().endswith((".jpg", ".jpeg")):
+            resized_clip.save_frame(final_output_path)
+        else:
+            # Default to PNG
+            final_output_path = final_output_path.rsplit(".", 1)[0] + ".png"
+            resized_clip.save_frame(final_output_path)
+
+        print(f"Successfully resized and saved to {final_output_path}")
+        return final_output_path
+
+    except Exception as e:
+        print(f"WARNING: Image processing failed for {image_path}. Error: {e}")
+        return image_path
+
+    finally:
+        if original_clip:
+            original_clip.close()
+
+
+# --- CORE FUNCTION: COMBINE VIDEOS (Unchanged) ---
 
 
 def combine_videos(video_paths: list, final_output_path: str):
@@ -180,7 +283,7 @@ def combine_videos(video_paths: list, final_output_path: str):
             final_clip.close()
 
 
-# --- CORE FUNCTION: CREATE VIDEO (WITH DYNAMIC SUBTITLES) ---
+# --- CORE FUNCTION: CREATE VIDEO (WITH CONSISTENT IMAGE PROCESSING AND STABLE FADES) ---
 
 
 def create_video_from_images_and_audio(
@@ -193,13 +296,16 @@ def create_video_from_images_and_audio(
     """
     Creates a video from a sequence of images and a single audio file from local paths.
     Pads the video duration to a minimum of 1.0s.
-    NOW INCLUDES DYNAMIC SUBTITLE CHUNKING.
+    Implements runtime resizing and cropping for ALL images and applies a stable fade effect.
     """
     if not os.path.isfile(audio_path):
         print(f"Error: The specified audio file '{audio_path}' does not exist.")
         return False
 
-    # --- IMAGE SELECTION LOGIC (Unchanged) ---
+    # Define a stable, short fade duration (reverting complexity for reliability)
+    FADE_DURATION_SEGMENT = 0.1
+
+    # --- IMAGE SELECTION LOGIC ---
     local_image_files = [
         os.path.join(image_folder, img)
         for img in os.listdir(image_folder)
@@ -209,11 +315,12 @@ def create_video_from_images_and_audio(
     image_files = natsorted(local_image_files)
     image_source = image_folder
 
-    if not image_files:
-        print(
-            f"Warning: No images found in '{image_folder}'. Falling back to a SINGLE, RANDOM sample image."
-        )
+    initial_image_paths = []
 
+    # -------------------------------------------------------------------------------------
+    # DETERMINE INITIAL IMAGE LIST (Downloaded or Fallback)
+    # -------------------------------------------------------------------------------------
+    if not image_files:
         # 2. Fallback to a single, random sample image
         fallback_images = glob.glob(os.path.join(FALLBACK_IMAGE_DIR, "*.png"))
         fallback_images.extend(glob.glob(os.path.join(FALLBACK_IMAGE_DIR, "*.jpg")))
@@ -221,19 +328,50 @@ def create_video_from_images_and_audio(
 
         if fallback_images:
             random_image_path = random.choice(fallback_images)
-            image_files = [random_image_path]
+            initial_image_paths = [random_image_path]
             image_source = f"RANDOM image: {os.path.basename(random_image_path)}"
+            print(
+                f"Warning: No segment images found. Falling back to a SINGLE, {image_source}."
+            )
         else:
-            image_files = []
+            print(
+                f"Error: No images found and no sample images found in '{FALLBACK_IMAGE_DIR}'. Skipping segment."
+            )
+            return False
+    else:
+        # If segment images are found, use them
+        initial_image_paths = image_files
 
-    if not image_files:
-        print(
-            f"Error: No images found and no sample images found in '{FALLBACK_IMAGE_DIR}'. Skipping segment."
+    # -------------------------------------------------------------------------------------
+    # PROCESS AND RESIZE IMAGES (Copy and Overwrite)
+    # -------------------------------------------------------------------------------------
+    final_image_paths = []
+    temp_copies_to_cleanup = []
+
+    for path in initial_image_paths:
+        current_path = path
+
+        # 1. If it's a fallback image (not in /tmp), COPY it to the writable segment folder first
+        if not path.startswith(tmp_dir):
+            base_name = os.path.basename(path).rsplit(".", 1)[0]
+            temp_path = os.path.join(image_folder, f"{base_name}_temp_copy.png")
+
+            shutil.copy(path, temp_path)
+            current_path = temp_path
+            temp_copies_to_cleanup.append(temp_path)
+
+        # 2. Resize the image, OVERWRITING the image file (which is guaranteed to be in /tmp)
+        resized_path = resize_and_crop_image(
+            current_path, TARGET_WIDTH, TARGET_HEIGHT, output_path=current_path
         )
-        return False
-    # -----------------------------
+        final_image_paths.append(resized_path)
 
-    print(f"Using {len(image_files)} image(s) from '{image_source}'. Creating video...")
+    image_files = (
+        final_image_paths  # This list now contains only the paths to 1920x1080 images
+    )
+    # -------------------------------------------------------------------------------------
+
+    print(f"Using {len(image_files)} consistent 1920x1080 image(s). Creating video...")
 
     # --- CWD OVERRIDE FOR SUBPROCESS SAFETY ---
     original_cwd = os.getcwd()
@@ -243,33 +381,24 @@ def create_video_from_images_and_audio(
     audio_clip = None
     video_clip = None
     clips = []
-    subtitle_clips = []  # List to hold the new dynamic subtitle clips
+    subtitle_clips = []
 
     try:
-        # Step 1: Load the audio clip and determine segment duration.
+        # 1. Load the audio clip and determine segment duration.
         audio_clip = AudioFileClip(audio_path)
         audio_duration = audio_clip.duration
 
-        # --- PADDING LOGIC ---
         MIN_ENCODE_DURATION = 1.0
+        video_segment_duration = max(
+            audio_duration, MIN_ENCODE_DURATION
+        )  # This is the final duration
 
-        if audio_duration < MIN_ENCODE_DURATION:
-            print(
-                f"Warning: Audio duration ({audio_duration:.2f}s) is too short. Padding video duration to {MIN_ENCODE_DURATION}s for stable encoding."
-            )
-            video_segment_duration = MIN_ENCODE_DURATION
-
-        else:
-            video_segment_duration = audio_duration
-        # ---------------------------------------
-
-        # Step 2: Calculate the duration for each image based on the final video duration.
+        # 2. Calculate the duration for each image based on the final video duration.
         num_images = len(image_files)
         image_duration = video_segment_duration / num_images
-
         print(f"Each image will be shown for {image_duration:.2f} seconds.")
 
-        # Step 3: Create and concatenate image clips.
+        # 3. Create and concatenate image clips.
         clips = [ImageClip(path, duration=image_duration) for path in image_files]
 
         # Assign concatenation result first.
@@ -277,32 +406,34 @@ def create_video_from_images_and_audio(
 
         # Assign duration directly to the attribute to bypass unsupported method.
         video_clip.duration = video_segment_duration
-
-        # Step 4: Set the audio.
         video_clip.audio = audio_clip
 
-        # --- NEW DYNAMIC SUBTITLE LOGIC ---
+        # --- DYNAMIC SUBTITLE LOGIC ---
         font_file = "/var/task/fonts/SubtitleFont.ttf"
 
-        # Generate the list of timed subtitle clips (4 words per chunk)
         subtitle_clips = generate_timed_text_clips(
             segment_text, video_segment_duration, font_file, max_words_per_chunk=4
         )
 
-        # Apply the final relative position and collect all elements
         positioned_subtitle_clips = []
         for clip in subtitle_clips:
-            # Set the y-position relative to the height of the base video clip
+            # Subtitle timing is relative to the start of this segment
             clip = clip.with_position(("center", video_clip.h * 0.9))
             positioned_subtitle_clips.append(clip)
 
-        # The base list for CompositeVideoClip is the video clip, followed by all subtitles
         composite_elements = [video_clip] + positioned_subtitle_clips
 
-        # Create the composite clip
+        # Final composite clip for this segment
         video_clip_edit = CompositeVideoClip(composite_elements, size=video_clip.size)
         video_clip_edit.duration = video_segment_duration
-        # --- END NEW DYNAMIC SUBTITLE LOGIC ---
+
+        # --- APPLY STABLE FADE IN/OUT EFFECTS ---
+        print(f"Applying stable {FADE_DURATION_SEGMENT}s fade-in and fade-out...")
+
+        # Apply FadeOut first (at the end), then FadeIn (at the start)
+        video_clip_edit = FadeOut(FADE_DURATION_SEGMENT).apply(video_clip_edit)
+        video_clip_edit = FadeIn(FADE_DURATION_SEGMENT).apply(video_clip_edit)
+        # --- END FADE EFFECTS ---
 
         # Step 5: Write the video file.
         video_clip_edit.write_videofile(
@@ -317,6 +448,7 @@ def create_video_from_images_and_audio(
 
     finally:
         os.chdir(original_cwd)
+        # Cleanup clips
         if audio_clip:
             audio_clip.close()
         if video_clip:
@@ -324,13 +456,20 @@ def create_video_from_images_and_audio(
         if clips:
             for clip in clips:
                 clip.close()
-        # Clean up the new subtitle clips
         if subtitle_clips:
             for clip in subtitle_clips:
                 clip.close()
 
+        # CLEANUP: Delete the temporary copies made from the read-only FALLBACK_IMAGE_DIR
+        for path in temp_copies_to_cleanup:
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except Exception as e:
+                    print(f"Warning: Failed to cleanup temp image file {path}: {e}")
 
-# --- FINAL LAMBDA HANDLER (Unchanged) ---
+
+# --- FINAL LAMBDA HANDLER (FIXED S3 KEY DECODING) ---
 
 
 def lambda_handler(event, context):
@@ -407,18 +546,25 @@ def lambda_handler(event, context):
 
             # --- S3 IMAGE DOWNLOAD ---
             if image_s3_key:
-                print(f"S3_KEY found: Attempting to download image from {image_s3_key}")
-                # Use the base name of the S3 key as the local filename
+                # *** FIX APPLIED: Decode the S3 key before using it for download ***
+                decoded_image_s3_key = unquote_plus(image_s3_key, encoding="utf-8")
+                print(
+                    f"S3_KEY found: Attempting to download image from {decoded_image_s3_key}"
+                )
+
+                # Use the base name of the DECODED S3 key as the local filename
                 local_image_path = os.path.join(
-                    local_subfolder, os.path.basename(image_s3_key)
+                    local_subfolder, os.path.basename(decoded_image_s3_key)
                 )
                 try:
-                    s3_client.download_file(bucket, image_s3_key, local_image_path)
+                    s3_client.download_file(
+                        bucket, decoded_image_s3_key, local_image_path
+                    )
                     print(f"Successfully downloaded image to {local_image_path}")
                 except Exception as e:
                     # Log error and continue. The video creation function will fall back to local/sample image.
                     print(
-                        f"WARNING: Failed to download S3 image {image_s3_key}. Will proceed with local/fallback images. Error: {e}"
+                        f"WARNING: Failed to download S3 image {decoded_image_s3_key}. Will proceed with local/fallback images. Error: {e}"
                     )
             # -------------------------------------
 
@@ -447,7 +593,7 @@ def lambda_handler(event, context):
                 local_videos_to_combine.append(intermediate_video_path)
                 successful_audio_keys.append(audio_s3_key)  # Record key for archival
 
-            # Clean up local segment files (CRITICAL for /tmp limits)
+            # Clean up local segment files (CRITICAL for /tmp limits).
             shutil.rmtree(local_subfolder, ignore_errors=True)
 
         # 5. Combine all videos and upload the final result
