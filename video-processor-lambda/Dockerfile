@@ -25,8 +25,8 @@ COPY images /var/task/images
 COPY fonts /var/task/fonts
 RUN chmod -R 755 /var/task/fonts
 
-# --- NEW LINE: Copy the black transition video ---
-COPY black_transition.mp4 /var/task/black_transition.mp4 
+# --- NEW LINE: Copy the fade transition video ---
+COPY fade_transition.mp4 /var/task/fade_transition.mp4 
 
 # 4. Binary Setup (FFmpeg and ImageMagick)
 COPY ffmpeg .

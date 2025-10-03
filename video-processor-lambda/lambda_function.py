@@ -6,7 +6,7 @@ import shutil
 from natsort import natsorted
 from urllib.parse import unquote_plus
 
-# --- CORE CLASSES: Imported from editor ---
+# MoviePy imports for clip duration and component composition
 from moviepy import (
     VideoFileClip,
     AudioFileClip,
@@ -14,7 +14,11 @@ from moviepy import (
     ImageClip,
     TextClip,
     CompositeVideoClip,
+    ColorClip,
 )
+
+# Functional effects (Included for completeness but no longer used for transitions)
+from moviepy.video.fx import FadeIn, FadeOut
 
 import moviepy.config as mpy_config
 from datetime import datetime
@@ -40,8 +44,8 @@ ARCHIVE_PREFIX = "processed-input/"
 TARGET_WIDTH = 1920
 TARGET_HEIGHT = 1080
 
-# --- NEW: Path to the pre-rendered black transition video ---
-TRANSITION_VIDEO_PATH = "/var/task/black_transition.mp4"
+# --- STABLE TRANSITION PATH RESTORED ---
+TRANSITION_VIDEO_PATH = "/var/task/fade_transition.mp4"
 
 
 # --- UTILITY FUNCTION: S3 Object Move (Unchanged) ---
@@ -66,6 +70,74 @@ def move_s3_object(bucket, old_key, new_key):
         print(f"Successfully archived {old_key}")
     except Exception as e:
         print(f"WARNING: Failed to archive object {old_key}. Error: {e}")
+
+
+# --- CORE FUNCTION: COMBINE VIDEOS (REVERTED) ---
+
+
+def combine_videos(video_paths: list, final_output_path: str):
+    """
+    Combines a list of video files into a single final video.
+    Includes explicit resource handling to prevent FFMPEG read errors.
+    """
+    print(f"Combining {len(video_paths)} videos into {final_output_path}...")
+
+    if not video_paths:
+        print("No videos to combine. Skipping final step.")
+        return
+
+    # --- RE-INJECT ENVIRONMENT OVERRIDES ---
+    os.environ["TMPDIR"] = tmp_dir
+    os.environ["TEMP"] = tmp_dir
+    os.environ["TMP"] = tmp_dir
+    original_cwd = os.getcwd()
+    os.chdir(tmp_dir)
+    # ----------------------------------------------------
+
+    clips = []
+    final_clip = None
+    try:
+        # Load all clips from the list of paths with error handling
+        for path in video_paths:
+            try:
+                # Attempt to load the intermediate clip
+                clip = VideoFileClip(path)
+                clips.append(clip)
+            except Exception as e:
+                # Log a warning for a failed intermediate clip, but continue
+                print(
+                    f"CRITICAL WARNING: Failed to read intermediate video {path}: {e}"
+                )
+                continue
+
+        if not clips:
+            print(
+                "No clips successfully loaded after attempt to read intermediate files. Skipping combination."
+            )
+            return
+
+        # Concatenate the clips
+        final_clip = concatenate_videoclips(clips, method="compose")
+
+        # Write the final combined video file
+        final_clip.write_videofile(
+            final_output_path, codec="libx264", audio_codec="aac"
+        )
+        print(f"Final video successfully combined at {final_output_path}")
+
+    except Exception as e:
+        print(f"An error occurred during video combination: {e}")
+        raise
+
+    finally:
+        # Restore the original working directory
+        os.chdir(original_cwd)
+        # Explicitly close all clips to free up resources (CRITICAL for MoviePy stability)
+        if clips:
+            for clip in clips:
+                clip.close()
+        if final_clip:
+            final_clip.close()
 
 
 # --- UTILITY FUNCTION: DYNAMIC SUBTITLE GENERATOR (Punctuation-Based Chunking) ---
@@ -210,7 +282,7 @@ def resize_and_crop_image(
             original_clip.close()
 
 
-# --- CORE FUNCTION: COMBINE VIDEOS (Unchanged) ---
+# --- CORE FUNCTION: COMBINE VIDEOS (Reverted to standard concatenation) ---
 
 
 def combine_videos(video_paths: list, final_output_path: str):
@@ -417,7 +489,12 @@ def create_video_from_images_and_audio(
 
         # Step 5: Write the video file.
         video_clip_edit.write_videofile(
-            output_path, fps=fps, codec="libx264", audio_codec="aac"
+            output_path,
+            fps=fps,
+            codec="libx264",
+            audio_codec="aac",
+            # Enforce uniform video properties for stable concatenation
+            ffmpeg_params=["-vf", "scale=1920:1080", "-pix_fmt", "yuv420p"],
         )
         print(f"Video successfully created at {output_path}")
         return True
@@ -451,7 +528,7 @@ def create_video_from_images_and_audio(
                     print(f"Warning: Failed to cleanup temp image file {path}: {e}")
 
 
-# --- FINAL LAMBDA HANDLER (WITH TRANSITION LOGIC) ---
+# --- FINAL LAMBDA HANDLER (RE-IMPLEMENTED BLACK TRANSITION) ---
 
 
 def lambda_handler(event, context):
@@ -581,23 +658,22 @@ def lambda_handler(event, context):
         # 5. Combine all videos and upload the final result
         if intermediate_video_paths:
 
-            # --- NEW: Interleave Segments with Black Transition Video ---
+            # --- STABLE FADE TRANSITION IMPLEMENTATION ---
             final_paths_to_combine = []
 
-            # Insert the transition video path after every segment except the last one
+            # Interleave the black transition video path after every segment except the last one
             for i, video_path in enumerate(intermediate_video_paths):
                 final_paths_to_combine.append(video_path)
 
                 # Add transition unless this is the very last video clip
                 if i < len(intermediate_video_paths) - 1:
-                    # The transition video is a pre-rendered black clip
                     final_paths_to_combine.append(TRANSITION_VIDEO_PATH)
 
             # Define the final output file name
             final_output_file_name = f"{compilation_id}.mp4"
             final_output_file = os.path.join(tmp_dir, final_output_file_name)
 
-            # Now call the combine_videos function which expects only paths
+            # Call the combine_videos function which handles standard concatenation
             combine_videos(final_paths_to_combine, final_output_file)
 
             # Define the final S3 key
