@@ -1,6 +1,6 @@
 "use client";
 
-// import Image from "next/image";
+import Image from "next/image";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useFieldArray, useForm } from "react-hook-form";
 import {
@@ -31,6 +31,7 @@ const schema = yup
               .max(255, "Highlight text can't be longer than 255 characters")
               .required("Highlights is required"),
             image: yup.string().required().nullable(),
+            // imageCaption: yup.string(),
           })
           .required(),
       )
@@ -52,7 +53,8 @@ export default function HighlightsTable() {
     (highlights || []).map(({ text, image }, id) => ({
       order: id,
       text: text,
-      image: image?.src || null,
+      image: image?.url || null,
+      imageCaption: image?.caption,
     })),
   );
 
@@ -65,7 +67,7 @@ export default function HighlightsTable() {
     formState: { errors },
   } = useForm({
     defaultValues: {
-      items: rowData,
+      items: rowData.map(({ order, text, image }) => ({ order, text, image })),
     },
     resolver: yupResolver(schema),
   });
@@ -92,7 +94,11 @@ export default function HighlightsTable() {
 
   const columns: GridColDef<(typeof rowData)[number]>[] = useMemo(
     () => [
-      { field: "order", headerName: "", width: 90 },
+      { field: "order", headerName: "",
+        align: "right",
+        width: 60,
+        renderCell({ value }) { return value || "Title" },
+      },
       {
         field: "text",
         headerName: "Highlights",
@@ -121,9 +127,10 @@ export default function HighlightsTable() {
         width: 150,
         editable: true,
         renderCell: ({ value, row }) => (
+          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={value || placeHolderImg}
-            alt={row.text}
+            alt={row.imageCaption || ""}
             width={120}
             height={80}
             // priority
@@ -133,11 +140,10 @@ export default function HighlightsTable() {
           <Select
             labelId="demo-simple-select-label"
             id="demo-simple-select"
-            value={value}
+            value={value || placeHolderImg}
             label=""
             fullWidth
             onChange={(event) => {
-              console.log(event);
               // Update the cell value in the DataGrid's state
               api.setEditCellValue({
                 id: id,
@@ -146,11 +152,12 @@ export default function HighlightsTable() {
               });
             }}
           >
-            {imageList.map(({ src }, id) => (
-              <MenuItem key={`${src}-${id}`} value={src}>
+            {imageList.map(({ url, caption }, id) => (
+              <MenuItem key={`${url}-${id}`} value={url}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={src}
-                  alt={"Article Picture"}
+                  src={url}
+                  alt={caption}
                   width={120}
                   height={80}
                   // priority
@@ -169,7 +176,9 @@ export default function HighlightsTable() {
   const apiUrl = process.env.NEXT_PUBLIC_ELEVENLABS_API;
 
   const onSubmit = async (data: {
-    items: (Omit<(typeof rowData)[0], "image"> & { image: string | null })[];
+    items: (Omit<(typeof rowData)[0], "image" | "imageCaption"> & {
+      image: string | null;
+    })[];
   }) => {
     if (!apiUrl) {
       alert("Lambda API URL not configured. Set NEXT_PUBLIC_ELEVENLABS_API.");
@@ -183,7 +192,7 @@ export default function HighlightsTable() {
         ? {
             src: highlight.image,
             s3_key:
-              imageList.find(({ src }) => highlight.image === src)?.s3_key ||
+              imageList.find(({ url }) => highlight.image === url)?.s3_key ||
               "",
           }
         : {};
@@ -244,9 +253,8 @@ export default function HighlightsTable() {
                 },
               }}
               pageSizeOptions={[10]}
-              checkboxSelection
+              // checkboxSelection
               processRowUpdate={(newRow) => {
-                console.log(newRow);
                 updateRow(newRow);
                 return newRow;
               }}

@@ -5,7 +5,12 @@ export type ArticleSummary = {
   title?: string;
   highlights?: {
     text: string;
-    image?: { src: string; s3_key: string };
+    image?: {
+      url: string;
+      s3_key: string;
+      title: string;
+      caption: string;
+    };
   }[];
 };
 

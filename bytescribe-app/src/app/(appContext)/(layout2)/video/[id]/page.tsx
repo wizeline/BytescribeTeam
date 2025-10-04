@@ -11,13 +11,15 @@ import {
 } from "@mui/material";
 import { useRouter } from "next/navigation";
 
+const mediaUrl = process.env.NEXT_PUBLIC_S3_BUCKET || "";
+
 export default function VideoPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const objectUrl = `https://bytescribe-image-audio-bucket.s3.ap-southeast-2.amazonaws.com/output_videos/${id}.mp4`;
+  const objectUrl = `${mediaUrl}/output_videos/${id}.mp4`;
 
   const [available, setAvailable] = useState(false);
   const [loading, setLoading] = useState(true);

@@ -13,6 +13,8 @@ import { useRouter } from "next/navigation";
 import { useContext, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 
+const MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0";
+
 export default function UrlBox(props: BoxProps) {
   const { control, handleSubmit } = useForm({
     defaultValues: {
@@ -31,10 +33,15 @@ export default function UrlBox(props: BoxProps) {
     const payload = {
       url: encodeURI(urlPath),
       full: true,
-      text_config: { temperature: 0.7, maxTokenCount: 2048 },
+      model_id: MODEL_ID,
+      text_config: {
+        temperature: 0.7,
+        maxTokenCount: 2048,
+      },
     };
 
     const apiUrl = process.env.NEXT_PUBLIC_CRAWLER_API;
+    const mediaUrl = process.env.NEXT_PUBLIC_S3_BUCKET;
 
     if (!apiUrl) {
       alert("Lambda API URL not configured. Set NEXT_PUBLIC_CRAWLER_API.");
@@ -56,23 +63,37 @@ export default function UrlBox(props: BoxProps) {
         }
 
         const data = await response.json();
+
+        if (!data.summary.bullets.length) {
+          throw new Error(
+            `No data is return for this article. Try again later.`,
+          );
+        }
+
         const highlights = [];
-        const uploaded_media = data.uploaded_media || [];
-
-        const imgList = (data.images as Record<"string", "string">[]).map(
-          (image, id) => ({
-            ...image,
-            ...(uploaded_media[id] || {}),
-          }),
-        );
-
         highlights.push({ text: data.title });
-        (data.summary.result.outputTextArray as string[]).map((value, i) => {
-          highlights.push({
-            text: value,
-            image: imgList[i],
-          });
-        });
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (data.summary.bullets as any[]).map(
+          (bullet: { text: string; image_url: { image_url: string }[] }) => {
+            highlights.push({
+              text: bullet.text,
+              image: bullet.image_url[0]
+                ? {
+                    ...bullet.image_url[0],
+                    s3_key: bullet.image_url[0].image_url.replace(
+                      "s3://bytescribe-image-audio-bucket/",
+                      "",
+                    ),
+                    url: bullet.image_url[0].image_url.replace(
+                      "s3://bytescribe-image-audio-bucket",
+                      mediaUrl || "",
+                    ),
+                  }
+                : undefined,
+            });
+          },
+        );
 
         setSummary({
           title: data.title,
