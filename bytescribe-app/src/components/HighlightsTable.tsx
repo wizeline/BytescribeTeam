@@ -31,7 +31,7 @@ const schema = yup
             order: yup.number().required("ID must be required"),
             text: yup
               .string()
-              .max(255, "Highlight text can't be longer than 255 characters")
+              .max(512, "Highlight text can't be longer than 512 characters")
               .required("Highlights is required"),
             image: yup.string().required().nullable(),
             // imageCaption: yup.string(),
@@ -47,6 +47,8 @@ const placeHolderImg = "/wizeline1-640x400.jpg";
 export default function HighlightsTable() {
   const { summary, setSummary } = useContext(ArticleSummaryContext);
   const { highlights } = summary;
+
+  console.log("summary", summary);
 
   const imageList = (highlights || [])
     .map(({ image }) => image)
