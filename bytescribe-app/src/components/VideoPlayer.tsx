@@ -11,6 +11,9 @@ import {
 } from "@mui/material";
 import { useRouter } from "next/navigation";
 
+const VIDEO_TIMEOUT = 300000;
+const INTERVAL_DELAY = 10000;
+
 export default function VideoPlayer({ id }: { id: string }) {
   const mediaUrl = process.env.NEXT_PUBLIC_S3_BUCKET || "";
   const objectUrl = `${mediaUrl}/output_videos/${id}.mp4`;
@@ -43,23 +46,29 @@ export default function VideoPlayer({ id }: { id: string }) {
       setAvailable(true);
       setLoading(false);
     } else {
-      const start = Date.now();
-      const intervalId = setInterval(async () => {
-        // Check if timeout reached
-        if (Date.now() - start >= 30000) {
-          console.log("Sorry, timeout.");
-          clearInterval(intervalId);
-          setLoading(false);
-          return;
-        }
+      let noOfAttempts = 1;
 
-        const availability = await checkAvailability();
-        if (availability) {
-          clearInterval(intervalId);
-          setAvailable(true);
-          setLoading(false);
-        }
-      }, 5000);
+      const start = Date.now();
+      const intervalId = setInterval(
+        async () => {
+          // Check if timeout reached
+          if (Date.now() - start >= VIDEO_TIMEOUT) {
+            console.log("Sorry, timeout.");
+            clearInterval(intervalId);
+            setLoading(false);
+            return;
+          }
+
+          noOfAttempts++;
+          const availability = await checkAvailability();
+          if (availability) {
+            clearInterval(intervalId);
+            setAvailable(true);
+            setLoading(false);
+          }
+        },
+        noOfAttempts < 6 ? INTERVAL_DELAY : INTERVAL_DELAY * 3,
+      );
     }
   }, [checkAvailability]);
 
