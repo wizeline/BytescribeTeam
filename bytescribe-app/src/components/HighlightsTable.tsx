@@ -4,13 +4,16 @@ import Image from "next/image";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useFieldArray, useForm } from "react-hook-form";
 import {
+  Backdrop,
   Box,
   Button,
-  ButtonGroup,
+  CircularProgress,
   FormHelperText,
   MenuItem,
   Paper,
   Select,
+  Typography,
+  useTheme,
 } from "@mui/material";
 import * as yup from "yup";
 import { yupResolver } from "@hookform/resolvers/yup";
@@ -85,6 +88,19 @@ export default function HighlightsTable() {
     newRows[rowIndex] = newRowValue;
     setRowData(newRows);
 
+    const newHighlights = structuredClone(highlights!);
+    const updateHighlightImage = newRowValue.image
+      ? imageList.find(({ url }) => newRowValue.image === url)
+      : undefined;
+    const updateHighlight = updateHighlightImage
+      ? { text: newRowValue.text, image: updateHighlightImage }
+      : { text: newRowValue.text };
+    newHighlights[newRowValue.order] = updateHighlight;
+    setSummary({
+      ...summary,
+      highlights: newHighlights,
+    });
+
     const fieldIndex = fields.findIndex(
       (field) => newRowValue.order === field.order,
     );
@@ -94,10 +110,14 @@ export default function HighlightsTable() {
 
   const columns: GridColDef<(typeof rowData)[number]>[] = useMemo(
     () => [
-      { field: "order", headerName: "",
+      {
+        field: "order",
+        headerName: "",
         align: "right",
         width: 60,
-        renderCell({ value }) { return value || "Title" },
+        renderCell({ value }) {
+          return value || "Title";
+        },
       },
       {
         field: "text",
@@ -231,51 +251,66 @@ export default function HighlightsTable() {
       });
   };
 
+  const { palette } = useTheme();
+
   return (
-    <form onSubmit={handleSubmit(onSubmit)}>
-      <Box display={"flex"} flexDirection={"column"} gap={3} marginBottom={5}>
-        {!highlights ? (
-          <Box textAlign={"center"} py={4}>
-            No data found. Go back and try again
-          </Box>
-        ) : (
-          <Paper elevation={2}>
-            <DataGrid
-              rows={rowData}
-              getRowId={({ order }) => order}
-              columns={columns}
-              getRowHeight={() => "auto"}
-              initialState={{
-                pagination: {
-                  paginationModel: {
-                    pageSize: 10,
+    <>
+      <form onSubmit={handleSubmit(onSubmit)}>
+        <Box display={"flex"} flexDirection={"column"} gap={3} marginBottom={5}>
+          {!highlights?.length ? (
+            <Box textAlign={"center"} py={4}>
+              No data found. Go back and try again
+            </Box>
+          ) : (
+            <Paper elevation={2}>
+              <DataGrid
+                rows={rowData}
+                getRowId={({ order }) => order}
+                columns={columns}
+                getRowHeight={() => "auto"}
+                initialState={{
+                  pagination: {
+                    paginationModel: {
+                      pageSize: 10,
+                    },
                   },
-                },
-              }}
-              pageSizeOptions={[10]}
-              // checkboxSelection
-              processRowUpdate={(newRow) => {
-                updateRow(newRow);
-                return newRow;
-              }}
-              sx={{
-                "& .MuiDataGrid-cell": {
-                  paddingY: 2, // Adds vertical padding to rows
-                },
-              }}
-              loading={loading}
-            />
-          </Paper>
-        )}
-        <ButtonGroup variant="contained" sx={{ alignSelf: "end" }}>
-          <Button onClick={() => router.push("home")}>Go Back</Button>
-          {!!highlights && (
-            <Button type="submit" disabled={loading}>
-              Continue
-            </Button>
+                }}
+                pageSizeOptions={[10]}
+                // checkboxSelection
+                processRowUpdate={(newRow) => {
+                  updateRow(newRow);
+                  return newRow;
+                }}
+                sx={{
+                  "& .MuiDataGrid-cell": {
+                    paddingY: 2, // Adds vertical padding to rows
+                  },
+                }}
+                loading={loading}
+              />
+            </Paper>
           )}
-        </ButtonGroup>
-      </Box>
-    </form>
+          <Box display={"flex"} justifyContent={"space-between"}>
+            <Button variant="contained" onClick={() => router.push("home")}>
+              Go Back
+            </Button>
+            {!!highlights?.length && (
+              <Button variant="contained" type="submit" disabled={loading}>
+                Continue
+              </Button>
+            )}
+          </Box>
+        </Box>
+      </form>
+      <Backdrop
+        open={loading}
+        sx={palette.mode === "dark" ? { bgcolor: "rgba(0, 0, 0, 0.9)" } : {}}
+      >
+        <Box display={"flex"} gap={2} alignItems={"center"}>
+          <CircularProgress color="inherit" />
+          <Typography variant="h6">Generating media...</Typography>
+        </Box>
+      </Backdrop>
+    </>
   );
 }
