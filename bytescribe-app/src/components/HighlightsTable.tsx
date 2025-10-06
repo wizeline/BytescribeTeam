@@ -147,13 +147,12 @@ export default function HighlightsTable() {
         width: 150,
         editable: true,
         renderCell: ({ value, row }) => (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <Image
             src={value || placeHolderImg}
             alt={row.imageCaption || ""}
             width={120}
             height={80}
-            // priority
+            priority
           />
         ),
         renderEditCell: ({ id, value, api, field }) => (
@@ -174,13 +173,12 @@ export default function HighlightsTable() {
           >
             {imageList.map(({ url, caption }, id) => (
               <MenuItem key={`${url}-${id}`} value={url}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <Image
                   src={url}
                   alt={caption}
                   width={120}
                   height={80}
-                  // priority
+                  priority
                 />
               </MenuItem>
             ))}
