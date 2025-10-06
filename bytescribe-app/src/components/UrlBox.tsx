@@ -8,6 +8,8 @@ import {
   CircularProgress,
   InputLabel,
   TextField,
+  Typography,
+  useTheme,
 } from "@mui/material";
 import { useRouter } from "next/navigation";
 import { useContext, useState } from "react";
@@ -111,6 +113,8 @@ export default function UrlBox(props: BoxProps) {
       });
   };
 
+  const { palette } = useTheme();
+
   return (
     <>
       <form onSubmit={handleSubmit(onSubmit)}>
@@ -172,8 +176,14 @@ export default function UrlBox(props: BoxProps) {
           </Button>
         </Box>
       </form>
-      <Backdrop open={loading}>
-        <CircularProgress color="inherit" />
+      <Backdrop
+        open={loading}
+        sx={palette.mode === "dark" ? { bgcolor: "rgba(0, 0, 0, 0.9)" } : {}}
+      >
+        <Box display={"flex"} gap={2} alignItems={"center"}>
+          <CircularProgress color="inherit" />
+          <Typography variant="h6">Crawling data...</Typography>
+        </Box>
       </Backdrop>
     </>
   );
