@@ -9,6 +9,8 @@ const nextConfig: NextConfig = {
       new URL(
         "https://bytescribe-image-audio-bucket.s3.ap-southeast-2.amazonaws.com/**",
       ),
+      // Allow S3 virtual-hosted style URLs (no region in hostname)
+      new URL("https://bytescribe-image-audio-bucket.s3.amazonaws.com/**"),
     ],
   },
 };

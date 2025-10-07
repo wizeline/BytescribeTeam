@@ -360,7 +360,7 @@ export default function UrlBox(props: BoxProps) {
           <Box display={"flex"} gap={2} alignItems={"center"}>
             <CircularProgress color="inherit" />
             <Typography variant="h6">
-              {polling ? "Processing job..." : "Crawling data..."}
+              {polling ? "Thinking about highlights..." : "Crawling data..."}
             </Typography>
           </Box>
           {jobProgress && (
