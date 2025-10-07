@@ -600,10 +600,10 @@ def lambda_handler(event, context=None):
                     )
                     
                     return _proxy_response(202, {
-                        "job_id": job_id,
-                        "status": "processing",
-                        "message": "Job started. Use /crawl with {\"action\":\"job_status\",\"job_id\":\"" + job_id + "\"} to check progress.",
-                        "basic_content": response_payload  # Return basic content immediately
+                      "job_id": job_id,
+                      "status": "processing",
+                      "message": "AI-powered analysis and summarization in progress. Check back soon for your enhanced content and insights.",
+                      "basic_content": response_payload  # Return basic content immediately
                     })
                     
                 except Exception as e:
