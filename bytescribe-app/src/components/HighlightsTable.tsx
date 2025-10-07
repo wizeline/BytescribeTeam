@@ -17,9 +17,11 @@ import {
 } from "@mui/material";
 import * as yup from "yup";
 import { yupResolver } from "@hookform/resolvers/yup";
-import { useContext, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { ArticleSummaryContext } from "@/contexts/ArticleSummary";
 import { useRouter } from "next/navigation";
+
+const apiUrl = process.env.NEXT_PUBLIC_ELEVENLABS_API;
 
 const schema = yup
   .object({
@@ -229,9 +231,81 @@ export default function HighlightsTable() {
     [errors.items, fields, imageList],
   );
 
+  const [jobId, setJobId] = useState("");
+  const [jobStatus, setJobStatus] = useState("");
+
+  const fetchJob = useCallback(async () => {
+    const payload = {
+      action: "job_status",
+      job_id: jobId,
+    };
+
+    let result;
+
+    if (!apiUrl) {
+      alert("Lambda API URL not configured. Set NEXT_PUBLIC_ELEVENLABS_API.");
+      return;
+    }
+
+    await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Request failed with ${response.status}`);
+        }
+
+        const data = await response.json();
+        result = data.body;
+      })
+      .catch((err) => {
+        console.error(err);
+        result = `Error sending URL: ${err.message || err}`;
+      });
+
+    return result;
+  }, [jobId]);
+
+  const fetchHighlights = useCallback(async () => {
+    setLoading(true);
+
+    const start = Date.now();
+    const intervalId = setInterval(async () => {
+      // Check if timeout reached
+      if (Date.now() - start >= 60000) {
+        console.log("Sorry, timeout.");
+        clearInterval(intervalId);
+        setLoading(false);
+        return;
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const job: any = await fetchJob();
+      console.log("job", job);
+
+      if (job.status === "completed") {
+        setJobStatus("completed");
+        setLoading(false);
+        clearInterval(intervalId);
+      }
+    }, 10000);
+  }, [fetchJob]);
+
   const router = useRouter();
 
-  const apiUrl = process.env.NEXT_PUBLIC_ELEVENLABS_API;
+  useEffect(() => {
+    if (!!jobId) {
+      if (jobStatus === "completed") {
+        router.push(`video/${jobId}`);
+      } else {
+        fetchHighlights();
+      }
+    }
+  }, [fetchHighlights, jobId, jobStatus, router]);
 
   const onSubmit = async (data: {
     items: (Omit<(typeof rowData)[0], "image" | "imageCaption"> & {
@@ -266,7 +340,7 @@ export default function HighlightsTable() {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ highlights: payload }),
+      body: JSON.stringify({ highlights: payload, async: true }),
     })
       .then(async (response) => {
         if (!response.ok) {
@@ -274,17 +348,17 @@ export default function HighlightsTable() {
         }
 
         const data = await response.json();
-        const videoId = data.body?.id;
-        if (!videoId) {
-          throw new Error(`Cannot get video id. Please try again later.`);
+        const jobId = data.body?.job_id;
+        if (!jobId) {
+          throw new Error(`No job id return. Please try again later.`);
         }
-        router.push(`video/${videoId}`);
+
+        setJobId(jobId);
+        setJobStatus("processing");
       })
       .catch((err) => {
         console.error(err);
         alert(`Error sending URL: ${err.message || err}`);
-      })
-      .finally(() => {
         setLoading(false);
       });
   };
