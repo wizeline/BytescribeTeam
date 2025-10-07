@@ -104,15 +104,30 @@ export default function VideoPlayer({ id }: { id: string }) {
             height={360}
           />
         </Box>
-        <Box display={"flex"} justifyContent={"space-between"}>
-          <Button variant="contained" onClick={() => router.push("/adjust")}>
-            Go Back
-          </Button>
-          {!available && (
-            <Button variant="contained" disabled={loading} onClick={loadVideo}>
-              Reload
+        <Box
+          display={"flex"}
+          justifyContent={"space-between"}
+          alignItems={"center"}
+        >
+          <Box display={"flex"} gap={2}>
+            <Button variant="contained" onClick={() => router.push("/adjust")}>
+              Go Back
             </Button>
-          )}
+          </Box>
+          <Box display={"flex"} gap={2}>
+            {!available && (
+              <Button
+                variant="contained"
+                disabled={loading}
+                onClick={loadVideo}
+              >
+                Reload
+              </Button>
+            )}
+            <Button variant="outlined" onClick={() => router.push("/home")}>
+              Go Home
+            </Button>
+          </Box>
         </Box>
       </Box>
       <Backdrop
