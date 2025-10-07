@@ -50,16 +50,54 @@ export default function HighlightsTable() {
 
   console.log("summary", summary);
 
+  const normalizeImageUrl = (url?: string | null) => {
+    if (!url) return null;
+    // Already an http(s) url
+    if (url.startsWith("http://") || url.startsWith("https://")) return url;
+    // s3://bucket/key -> try to convert
+    if (url.startsWith("s3://")) {
+      const configured = process.env.NEXT_PUBLIC_S3_BUCKET?.replace(/\/$/, "");
+      // common internal replacement used elsewhere in repo
+      const prefix = "s3://bytescribe-image-audio-bucket/";
+      if (configured && url.startsWith(prefix)) {
+        return configured + "/" + url.slice(prefix.length);
+      }
+      // generic fallback: s3://bucket/key -> https://bucket.s3.amazonaws.com/key
+      const without = url.slice(5); // remove s3://
+      const idx = without.indexOf("/");
+      if (idx === -1) return `https://${without}.s3.amazonaws.com`;
+      const bucket = without.slice(0, idx);
+      const key = without.slice(idx + 1);
+      return `https://${bucket}.s3.amazonaws.com/${key}`;
+    }
+    return url;
+  };
+
   const imageList = (highlights || [])
-    .map(({ image }) => image)
-    .filter((image) => !!image);
+    .map(({ image }) =>
+      image
+        ? {
+            ...image,
+            url: normalizeImageUrl(image.url) || "",
+            title: String(image.title ?? ""),
+            caption: String(image.caption ?? ""),
+            s3_key: image.s3_key ?? "",
+          }
+        : null,
+    )
+    .filter((image) => !!image) as {
+    url: string;
+    caption: string;
+    title: string;
+    s3_key: string;
+  }[];
 
   const [rowData, setRowData] = useState(
     (highlights || []).map(({ text, image }, id) => ({
       order: id,
       text: text,
-      image: image?.url || null,
-      imageCaption: image?.caption,
+      image: normalizeImageUrl(image?.url) || null,
+      imageCaption: String(image?.caption ?? ""),
     })),
   );
 
@@ -177,7 +215,7 @@ export default function HighlightsTable() {
               <MenuItem key={`${url}-${id}`} value={url}>
                 <Image
                   src={url}
-                  alt={caption}
+                  alt={caption || "image"}
                   width={120}
                   height={80}
                   priority
