@@ -67,7 +67,7 @@ We will use an S3 bucket as a central repository to store our final video files.
 
 Initially, we will offer a freemium model. A limited number of free video generations per month to attract users, with a tiered subscription plan for higher usage, advanced features, and team-based accounts.
 
-<h2>Addtional Information</h2>
+<h2>Additional Information</h2>
 
 <h4>Roadmap:</h4>
 			Phase 1 (MVP): Build a functional MVP that can turn a Confluence page into a video summary.<br />
