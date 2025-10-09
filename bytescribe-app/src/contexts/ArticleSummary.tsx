@@ -3,6 +3,7 @@ import { createContext } from "react";
 export type ArticleSummary = {
   id?: string;
   title?: string;
+  url?: string;
   highlights?: {
     text: string;
     image?: {
