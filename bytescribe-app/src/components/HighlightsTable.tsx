@@ -111,13 +111,27 @@ export default function HighlightsTable() {
     s3_key: string;
   }[];
 
+  // The first item in `highlights` is the page title (index 0).
+  // Keep DataGrid rows to only the actual highlights (index > 0),
+  // but preserve the original `order` index so updates map back correctly.
   const [rowData, setRowData] = useState(
-    (highlights || []).map(({ text, image }, id) => ({
-      order: id,
-      text: text,
-      image: normalizeImageUrl(image?.url) || null,
-      imageCaption: String(image?.caption ?? ""),
-    })),
+    (highlights || [])
+      .map(({ text, image }, id) =>
+        id === 0
+          ? null
+          : {
+              order: id,
+              text: text,
+              image: normalizeImageUrl(image?.url) || null,
+              imageCaption: String(image?.caption ?? ""),
+            },
+      )
+      .filter((r) => !!r) as {
+      order: number;
+      text: string;
+      image: string | null;
+      imageCaption: string;
+    }[],
   );
 
   const [loading, setLoading] = useState(false);
@@ -436,12 +450,16 @@ export default function HighlightsTable() {
                     highlights: newHighlights,
                   });
 
-                  const mapped = newHighlights.map((h, id) => ({
-                    order: id,
-                    text: h.text,
-                    image: normalizeImageUrl(h.image?.url) || null,
-                    imageCaption: String(h.image?.caption ?? ""),
-                  }));
+                  // Keep title (index 0) out of the DataGrid rows but preserve
+                  // the original ordering index so edits map back into `highlights`.
+                  const mapped = newHighlights
+                    .map((h, id) => ({
+                      order: id,
+                      text: h.text,
+                      image: normalizeImageUrl(h.image?.url) || null,
+                      imageCaption: String(h.image?.caption ?? ""),
+                    }))
+                    .filter((r) => r.order > 0);
                   setRowData(mapped);
                 } else {
                   alert("No highlights found in the crawled content.");
@@ -511,12 +529,16 @@ export default function HighlightsTable() {
             highlights: newHighlights,
           });
 
-          const mapped = newHighlights.map((h, id) => ({
-            order: id,
-            text: h.text,
-            image: normalizeImageUrl(h.image?.url) || null,
-            imageCaption: String(h.image?.caption ?? ""),
-          }));
+          // Exclude the title (index 0) from table rows while preserving
+          // the original `order` indices on each row.
+          const mapped = newHighlights
+            .map((h, id) => ({
+              order: id,
+              text: h.text,
+              image: normalizeImageUrl(h.image?.url) || null,
+              imageCaption: String(h.image?.caption ?? ""),
+            }))
+            .filter((r) => r.order > 0);
           setRowData(mapped);
         } else {
           alert("No highlights found in the crawled content.");
@@ -690,33 +712,52 @@ export default function HighlightsTable() {
           </Paper>
 
           {!!highlights?.length && (
-            <Paper elevation={2}>
-              <DataGrid
-                rows={rowData}
-                getRowId={({ order }) => order}
-                columns={columns}
-                getRowHeight={() => "auto"}
-                initialState={{
-                  pagination: {
-                    paginationModel: {
-                      pageSize: 10,
+            <>
+              <Paper elevation={1} sx={{ padding: 2, mb: 2 }}>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  Title
+                </Typography>
+                <TextField
+                  fullWidth
+                  size="small"
+                  value={summary.title || ""}
+                  onChange={(e) =>
+                    setSummary({
+                      ...summary,
+                      title: String(e.target.value || ""),
+                    })
+                  }
+                />
+              </Paper>
+
+              <Paper elevation={2}>
+                <DataGrid
+                  rows={rowData}
+                  getRowId={({ order }) => order}
+                  columns={columns}
+                  getRowHeight={() => "auto"}
+                  initialState={{
+                    pagination: {
+                      paginationModel: {
+                        pageSize: 10,
+                      },
                     },
-                  },
-                }}
-                pageSizeOptions={[10]}
-                // checkboxSelection
-                processRowUpdate={(newRow) => {
-                  updateRow(newRow);
-                  return newRow;
-                }}
-                sx={{
-                  "& .MuiDataGrid-cell": {
-                    paddingY: 2, // Adds vertical padding to rows
-                  },
-                }}
-                loading={loading}
-              />
-            </Paper>
+                  }}
+                  pageSizeOptions={[10]}
+                  // checkboxSelection
+                  processRowUpdate={(newRow) => {
+                    updateRow(newRow);
+                    return newRow;
+                  }}
+                  sx={{
+                    "& .MuiDataGrid-cell": {
+                      paddingY: 2, // Adds vertical padding to rows
+                    },
+                  }}
+                  loading={loading}
+                />
+              </Paper>
+            </>
           )}
           <Box display={"flex"} justifyContent={"space-between"}>
             <Button variant="contained" onClick={() => router.push("home")}>
