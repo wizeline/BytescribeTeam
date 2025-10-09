@@ -4,7 +4,6 @@ import {
   Box,
   BoxProps,
   Button,
-  InputLabel,
   TextField,
   Typography,
   Paper,
@@ -17,7 +16,6 @@ import { useContext, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 
 export default function UrlBox(props: BoxProps) {
-  // Read the shared summary so we can pre-fill the URL if it's already set
   const { setSummary, summary } = useContext(ArticleSummaryContext);
 
   const {
@@ -26,7 +24,6 @@ export default function UrlBox(props: BoxProps) {
     formState: { isValid },
   } = useForm({
     defaultValues: {
-      // If a URL was previously stored in the summary, show it (decoded)
       urlPath: summary?.url ? decodeURI(String(summary.url)) : "",
     },
     mode: "onChange",
@@ -35,26 +32,15 @@ export default function UrlBox(props: BoxProps) {
   const [loading] = useState(false);
   const router = useRouter();
 
-  // Simplified submit: store the provided URL in the shared ArticleSummary
-  // context and navigate to the adjust page. The actual crawl/generation
-  // will be performed later by the Generate button in HighlightsTable.
   const onSubmit = async (data: { urlPath: string }) => {
     const { urlPath } = data;
-    // Merge the provided URL into the existing summary so we don't wipe out
-    // any previously stored title/highlights when navigating back and forth.
     setSummary({ ...summary, url: encodeURI(String(urlPath)) });
     router.push("adjust");
   };
 
-  // No theme usage required here
-
-  // No polling or backend calls here anymore — UrlBox simply stores the URL
-  // into the article summary and navigates to the adjust UI.
-
   return (
     <>
       <Box sx={{ maxWidth: 900, mx: "auto", px: 2, py: 3 }} {...props}>
-        {/* Top intro card similar to the screenshot: rounded, bordered block */}
         <Paper
           elevation={0}
           sx={{
@@ -65,7 +51,7 @@ export default function UrlBox(props: BoxProps) {
             backgroundColor: (theme) => theme.palette.background.paper,
           }}
         >
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          <Typography variant="subtitle1" color="text.secondary" gutterBottom>
             Introduction
           </Typography>
           <Typography variant="body1" sx={{ lineHeight: 1.4 }}>
@@ -81,12 +67,6 @@ export default function UrlBox(props: BoxProps) {
             gap={2}
             alignItems={{ xs: "stretch", sm: "center" }}
           >
-            <Box sx={{ minWidth: 130 }}>
-              <InputLabel htmlFor="input-url" sx={{ ml: 0.5 }}>
-                Confluence Link:
-              </InputLabel>
-            </Box>
-
             <Box sx={{ flex: 1 }}>
               <Controller
                 name="urlPath"
@@ -108,6 +88,11 @@ export default function UrlBox(props: BoxProps) {
                     sx={{ boxShadow: 2, borderRadius: 1 }}
                     slotProps={{
                       input: {
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            Confluence Link:
+                          </InputAdornment>
+                        ),
                         endAdornment: field.value ? (
                           <InputAdornment position="end">
                             <IconButton
