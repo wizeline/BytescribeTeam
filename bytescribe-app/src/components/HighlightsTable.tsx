@@ -49,12 +49,6 @@ const schema = yup
 const placeHolderImg = "/wizeline1-640x400.jpg";
 
 const availableModelOptions = [
-  { value: "", label: "Default (amazon.titan-text-express-v1)" },
-  {
-    value: "amazon.titan-text-express-v1",
-    label: "Amazon Titan Text Express v1",
-  },
-  { value: "amazon.titan-text-lite-v1", label: "Amazon Titan Text Lite v1" },
   {
     value: "anthropic.claude-3-haiku-20240307-v1:0",
     label: "Anthropic Claude 3 Haiku",

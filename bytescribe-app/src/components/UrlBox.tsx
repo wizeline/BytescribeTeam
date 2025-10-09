@@ -1,6 +1,14 @@
 "use client";
 import { ArticleSummaryContext } from "@/contexts/ArticleSummary";
-import { Box, BoxProps, Button, InputLabel, TextField } from "@mui/material";
+import {
+  Box,
+  BoxProps,
+  Button,
+  InputLabel,
+  TextField,
+  Typography,
+  Paper,
+} from "@mui/material";
 import { useRouter } from "next/navigation";
 import { useContext, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
@@ -9,7 +17,7 @@ export default function UrlBox(props: BoxProps) {
   const {
     control,
     handleSubmit,
-    formState: { isValid, errors },
+    formState: { isValid },
   } = useForm({
     defaultValues: {
       urlPath: "",
@@ -39,32 +47,48 @@ export default function UrlBox(props: BoxProps) {
 
   return (
     <>
-      <form onSubmit={handleSubmit(onSubmit)}>
-        <Box
-          display={"flex"}
-          flexDirection={"column"}
-          gap={2}
-          justifyContent={"center"}
-          {...props}
+      <Box sx={{ maxWidth: 900, mx: "auto", px: 2, py: 3 }} {...props}>
+        {/* Top intro card similar to the screenshot: rounded, bordered block */}
+        <Paper
+          elevation={0}
+          sx={{
+            boxShadow: 2,
+            borderRadius: 2,
+            p: 2,
+            mb: 3,
+            backgroundColor: (theme) => theme.palette.background.paper,
+          }}
         >
+          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+            Introduction
+          </Typography>
+          <Typography variant="body1" sx={{ lineHeight: 1.4 }}>
+            This is the landing page of our Page2Play application. Enter a
+            Confluence link below to begin.
+          </Typography>
+        </Paper>
+
+        <form onSubmit={handleSubmit(onSubmit)}>
           <Box
             display={"flex"}
+            flexDirection={{ xs: "column", sm: "row" }}
             gap={2}
-            justifyContent={"center"}
-            alignItems={"center"}
+            alignItems={{ xs: "stretch", sm: "center" }}
           >
-            <Box>
-              <InputLabel htmlFor="input-url">Confluence Link: </InputLabel>
+            <Box sx={{ minWidth: 130 }}>
+              <InputLabel htmlFor="input-url" sx={{ ml: 0.5 }}>
+                Confluence Link:
+              </InputLabel>
             </Box>
 
-            <Controller
-              name="urlPath"
-              control={control}
-              render={({ field, fieldState }) => (
-                <>
+            <Box sx={{ flex: 1 }}>
+              <Controller
+                name="urlPath"
+                control={control}
+                render={({ field, fieldState }) => (
                   <TextField
                     id="input-url"
-                    label=""
+                    placeholder="https://wizeline.atlassian.net//path/to/page"
                     variant="outlined"
                     fullWidth
                     {...field}
@@ -75,32 +99,33 @@ export default function UrlBox(props: BoxProps) {
                       fieldState.error &&
                       (fieldState.error.message || "Failed to validate.")
                     }
-                    sx={{ height: "3.5rem", boxShadow: 2, borderRadius: 1 }}
-                  ></TextField>
-                </>
-              )}
-              rules={{
-                pattern: {
-                  message: "Invalid url.",
-                  value:
-                    /[(http(s)?):\/\/(www\.)?a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)/,
-                },
-                required: "Please enter a valid url.",
-              }}
-            />
+                    sx={{ boxShadow: 2, borderRadius: 1 }}
+                  />
+                )}
+                rules={{
+                  pattern: {
+                    message: "Invalid url.",
+                    value:
+                      /[(http(s)?):\/\/(www\.)?a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)/,
+                  },
+                  required: "Please enter a valid url.",
+                }}
+              />
+            </Box>
+
+            <Box sx={{ display: "flex", alignItems: "center" }}>
+              <Button
+                variant="contained"
+                type="submit"
+                disabled={loading || !isValid}
+                sx={{ height: 48, whiteSpace: "nowrap" }}
+              >
+                Next
+              </Button>
+            </Box>
           </Box>
-          <Button
-            variant="contained"
-            type="submit"
-            disabled={loading || !isValid}
-            sx={{ alignSelf: "end" }}
-          >
-            Next
-          </Button>
-          {/* (async submission only) */}
-        </Box>
-      </form>
-      {/* UrlBox is a simple URL input now; UI for background processing happens elsewhere */}
+        </form>
+      </Box>
     </>
   );
 }
