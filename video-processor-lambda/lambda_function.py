@@ -5,6 +5,9 @@ import json
 import shutil
 from natsort import natsorted
 from urllib.parse import unquote_plus, urlparse
+from datetime import datetime
+import random
+import moviepy.config as mpy_config
 
 # MoviePy imports for clip duration and component composition
 from moviepy import (
@@ -17,13 +20,6 @@ from moviepy import (
     ColorClip,
 )
 
-# Functional effects (Included for completeness but no longer used for transitions)
-from moviepy.video.fx import FadeIn, FadeOut
-
-import moviepy.config as mpy_config
-from datetime import datetime
-import random
-
 # --- GLOBAL CONFIGURATION (Safe and Stable) ---
 
 # Initialize the S3 client globally
@@ -31,19 +27,14 @@ s3_client = boto3.client("s3")
 # Initialize Lambda's temporary directory globally
 tmp_dir = "/tmp"
 
-# Explicitly set ffmpeg path (relies on copy in lambda_handler)
-mpy_config.FFMPEG_BINARY = os.path.join(tmp_dir, "ffmpeg")
-
 # Define the fallback image directory
 FALLBACK_IMAGE_DIR = "/var/task/images"
 
 # Define the archive prefix globally
 ARCHIVE_PREFIX = "processed-input/"
 
-# Target video resolution (Will be overridden by config in lambda_handler)
+# Target video resolution defaults
 DEFAULT_ASPECT_RATIO = "16:9"
-TARGET_WIDTH = 1920
-TARGET_HEIGHT = 1080
 
 # --- STABLE TRANSITION PATH RESTORED ---
 TRANSITION_VIDEO_PATH = "/var/task/fade_transition.mp4"
@@ -51,8 +42,28 @@ TRANSITION_VIDEO_PATH = "/var/task/fade_transition.mp4"
 # --- CONFIGURATION FOR TITLE SLIDE ---
 TITLE_FONT_SIZE = 110
 TITLE_STROKE_WIDTH = 5
+# Safe character limit for the large title font to force wrapping
+MAX_CHARS_PER_TITLE_LINE = 8
 # ------------------------------------
 
+# --- OPTIMIZATION 1: FFmpeg Binary Setup (Runs once on Cold Start) ---
+try:
+    ffmpeg_source = "/var/task/ffmpeg"
+    ffmpeg_dest = os.path.join(tmp_dir, "ffmpeg")
+    # Only copy if the file doesn't exist (i.e., on cold start)
+    if not os.path.exists(ffmpeg_dest):
+        shutil.copy(ffmpeg_source, ffmpeg_dest)
+        os.chmod(ffmpeg_dest, 0o755)  # Ensure it's executable
+        print("FFmpeg copied and set up on disk (Cold Start).")
+    else:
+        print("FFmpeg already present in /tmp. Skipping copy (Warm Start).")
+except Exception as e:
+    print(f"FATAL: Failed to copy or set permissions for FFmpeg: {e}")
+    # Fatal error at module load time will crash the Lambda before invocation
+    raise
+
+# Explicitly set ffmpeg path (relies on copy above)
+mpy_config.FFMPEG_BINARY = os.path.join(tmp_dir, "ffmpeg")
 
 # --- UTILITY FUNCTION: S3 Object Move (Unchanged) ---
 
@@ -146,7 +157,7 @@ def combine_videos(video_paths: list, final_output_path: str):
             final_clip.close()
 
 
-# --- UTILITY FUNCTION: DYNAMIC SUBTITLE GENERATOR (Updated Signature) ---
+# --- UTILITY FUNCTION: DYNAMIC SUBTITLE GENERATOR (Unchanged) ---
 
 
 def generate_timed_text_clips(
@@ -154,7 +165,7 @@ def generate_timed_text_clips(
 ):
     """
     Splits text into chunks, prioritizing sentence structure/punctuation breaks,
-    while respecting a maximum word count per chunk (now passed dynamically).
+    while respecting a maximum word count per chunk.
     """
     words = text.split()
     chunks = []
@@ -211,17 +222,39 @@ def generate_timed_text_clips(
     return timed_clips
 
 
-# --- NEW UTILITY FUNCTION: TITLE GENERATOR (Unchanged) ---
+# --- NEW UTILITY FUNCTION: TITLE GENERATOR (FIXED: Dynamic Wrapping) ---
 
 
 def generate_title_clip(text: str, duration: float, font_path: str):
     """
     Generates a single, large, bold, centered text clip for a title card.
-    Uses globally defined TITLE_FONT_SIZE and TITLE_STROKE_WIDTH.
+    Applies dynamic wrapping based on MAX_CHARS_PER_TITLE_LINE to prevent text overflow.
     """
+
+    # 1. Implement simple wrapping logic based on character count
+    words = text.split()
+    wrapped_lines = []
+    current_line = []
+
+    for word in words:
+        # Check if adding the word exceeds the limit and the current line is NOT empty
+        current_char_count = sum(len(w) + 1 for w in current_line)
+        if current_char_count + len(word) > MAX_CHARS_PER_TITLE_LINE and current_line:
+            wrapped_lines.append(" ".join(current_line))
+            current_line = [word]
+        else:
+            current_line.append(word)
+
+    if current_line:
+        wrapped_lines.append(" ".join(current_line))
+
+    wrapped_text = "\n".join(wrapped_lines)
+    print(f"Wrapped Title Text:\n{wrapped_text}")
+
+    # 2. Create the TextClip with the wrapped text
     title_clip = (
         TextClip(
-            text=text,
+            text=wrapped_text,  # Use the wrapped text
             font=font_path,
             font_size=TITLE_FONT_SIZE,
             color="white",
@@ -235,7 +268,7 @@ def generate_title_clip(text: str, duration: float, font_path: str):
     return [title_clip]
 
 
-# --- UTILITY FUNCTION: IMAGE RESIZE AND CROP (No Global Reliance) ---
+# --- UTILITY FUNCTION: IMAGE RESIZE AND CROP (FIXED: Switched to FIT/Padded Mode) ---
 
 
 def resize_and_crop_image(
@@ -321,7 +354,7 @@ def resize_and_crop_image(
             pass
 
 
-# --- CORE FUNCTION: CREATE VIDEO (UPDATED Signature and FIX) ---
+# --- CORE FUNCTION: CREATE VIDEO (Updated) ---
 
 
 def create_video_from_images_and_audio(
@@ -436,7 +469,6 @@ def create_video_from_images_and_audio(
         print(f"Each image will be shown for {image_duration:.2f} seconds.")
 
         # 3. Create and concatenate image clips.
-        # FIX APPLIED: Removed the incorrect .set_size() call. Images are already correct size.
         clips = [ImageClip(path, duration=image_duration) for path in image_files]
 
         video_clip = concatenate_videoclips(clips, method="compose")
@@ -528,22 +560,11 @@ def create_video_from_images_and_audio(
                     print(f"Warning: Failed to cleanup temp image file {path}: {e}")
 
 
-# --- FINAL LAMBDA HANDLER (UPDATED with Config extraction) ---
+# --- FINAL LAMBDA HANDLER (UPDATED with Config extraction and Final Cleanup) ---
 
 
 def lambda_handler(event, context):
     print("Received event:", event)
-
-    # --- FFmpeg Binary Setup ---
-    try:
-        ffmpeg_source = "/var/task/ffmpeg"
-        ffmpeg_dest = os.path.join(tmp_dir, "ffmpeg")
-        if not os.path.exists(ffmpeg_dest):
-            shutil.copy(ffmpeg_source, ffmpeg_dest)
-            os.chmod(ffmpeg_dest, 0o755)  # Ensure it's executable
-    except Exception as e:
-        print(f"FATAL: Failed to copy or set permissions for FFmpeg: {e}")
-        raise
 
     # Store a variable for the compilation ID, initialized to a fallback value
     compilation_id = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -553,6 +574,11 @@ def lambda_handler(event, context):
     transition_style = "fade"
     target_width = 1920
     target_height = 1080
+
+    # Define local path for the JSON manifest (used in cleanup)
+    local_json_path = ""
+    # Define local path for the final output file (used in cleanup)
+    final_output_file = ""
 
     try:
         # 1. Determine Bucket and Key (Assuming S3 trigger on highlights.json)
@@ -716,7 +742,7 @@ def lambda_handler(event, context):
             # --- STABLE FADE/CUT TRANSITION IMPLEMENTATION (UPDATED) ---
             final_paths_to_combine = []
 
-            # Interleave the black transition video path after every segment except the last one
+            # Interleave the transition video path only if style is 'fade'
             for i, video_path in enumerate(intermediate_video_paths):
                 final_paths_to_combine.append(video_path)
 
@@ -726,7 +752,9 @@ def lambda_handler(event, context):
 
             # Define the final output file name
             final_output_file_name = f"{compilation_id}.mp4"
-            final_output_file = os.path.join(tmp_dir, final_output_file_name)
+            final_output_file = os.path.join(
+                tmp_dir, final_output_file_name
+            )  # Store path for cleanup
 
             # Call the combine_videos function which handles standard concatenation
             combine_videos(final_paths_to_combine, final_output_file)
@@ -760,7 +788,7 @@ def lambda_handler(event, context):
                 f"Archival complete. New folder structure is s3://{bucket}/{archive_folder}"
             )
 
-            # Final cleanup of all local files
+            # Final cleanup of all local files (Optimization 2D)
             for path in intermediate_video_paths:
                 if os.path.exists(path):
                     os.remove(path)
@@ -774,6 +802,10 @@ def lambda_handler(event, context):
                 "body": f"Video compilation {compilation_id} created and archived successfully.",
             }
         else:
+            # Final cleanup even if no videos were created
+            if os.path.exists(local_json_path):
+                os.remove(local_json_path)
+
             return {
                 "statusCode": 200,
                 "body": "No intermediate videos were successfully created for compilation.",
@@ -781,4 +813,11 @@ def lambda_handler(event, context):
 
     except Exception as e:
         print(f"An error occurred in Lambda handler: {e}")
+
+        # Ensure local files are cleaned up even on crash
+        if os.path.exists(final_output_file):
+            os.remove(final_output_file)
+        if os.path.exists(local_json_path):
+            os.remove(local_json_path)
+
         raise
