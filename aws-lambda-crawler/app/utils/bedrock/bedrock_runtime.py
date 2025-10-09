@@ -339,20 +339,35 @@ def summarize_and_select_images(article_text: str, images_json: list[dict], mode
             images_json[orig_idx]["tags"] = images_json[orig_idx].get("tags", []) or []
 
         # ----------------------------------------
+        # Allow callers to override the per-bullet max word count via text_config.
+        # Supported keys (in order): max_words_per_bullet, max_words, max_word_count, max_words_each
+        max_words_per_bullet = 60
+        if isinstance(text_config, dict):
+            for _k in ("max_words_per_bullet", "max_words", "max_word_count", "max_words_each"):
+                if _k in text_config:
+                    try:
+                        v = int(text_config.get(_k))
+                        if v > 0:
+                            max_words_per_bullet = v
+                            break
+                    except Exception:
+                        # ignore invalid values and keep default
+                        pass
+
         prompt = f"""You are given a long article and a list of candidate images (each includes title, caption/tags, and an S3 URL).
         Tasks:
-        1) Produce 3 main bullet points summarizing the core ideas of the article (≤60 words each, no overlap).
+        1) Produce 3 main bullet points summarizing the core ideas of the article (≤{max_words_per_bullet} words each, no overlap).
         2) For each bullet point, select at most three best-matching images from the provided list.
-        3) If there is no any suitable images, return empty images and not invent images.
+        3) If there are no suitable images, return empty images and do not invent images.
         4) Return a valid JSON object with this schema:
         {{
-        "bullets": [
+          "bullets": [
             {{
-            "text": "<<=60 words>>",
-            "reason": "<<why this image fits, 1 sentence>>",
-            "image_url": "<<a list of suitable provided images in s3 URLs>>"
+              "text": "<<= {max_words_per_bullet} words>>",
+              "reason": "<<why this image fits, 1 sentence>>",
+              "image_url": "<<a list of suitable provided images in s3 URLs>>"
             }}
-        ]
+          ]
         }}
 
         Important rules:
@@ -368,7 +383,7 @@ def summarize_and_select_images(article_text: str, images_json: list[dict], mode
         <<<
         {json.dumps(images_json, ensure_ascii=False)}
         >>>
-    """
+        """
 
         # We need to construct the request body according to the target model's
         # expected schema. Anthropic/Claude models accept a `messages` style
