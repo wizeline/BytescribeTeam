@@ -38,6 +38,7 @@ const INTERVAL_DELAY = 10000;
 
 export default function VideoPage() {
   const [videoId, setVideoId] = useState("");
+  const [videoRatio, setVideoRatio] = useState("16:9");
   const [loading, setLoading] = useState(false);
 
   const initForm = {
@@ -54,6 +55,7 @@ export default function VideoPage() {
   });
 
   const { summary: { title, highlights } } = useContext(ArticleSummaryContext);
+  const [savedConfig, setSavedConfig] = useState<typeof initForm>();
 
   const [jobId, setJobId] = useState("");
   const [jobStatus, setJobStatus] = useState("");
@@ -128,13 +130,14 @@ export default function VideoPage() {
     if (!!jobId) {
       if (jobStatus === "completed") {
         setVideoId(jobId);
+        setVideoRatio(savedConfig!.ratio)
       } else {
         fetchHighlights();
       }
     }
-  }, [fetchHighlights, jobId, jobStatus]);
+  }, [fetchHighlights, jobId, jobStatus, savedConfig]);
 
-  const onSubmit = (data: typeof initForm) => {
+  const onSubmit = (formData: typeof initForm) => {
     if (!apiUrl) {
       alert("Lambda API URL not configured. Set NEXT_PUBLIC_ELEVENLABS_API.");
       return;
@@ -143,7 +146,7 @@ export default function VideoPage() {
     setPolling(true);
 
     const payload = {
-      ...data,
+      ...formData,
       async: true, // Always true
       highlights: [
         { text: title! },
@@ -171,6 +174,7 @@ export default function VideoPage() {
 
         setJobId(jobId);
         setJobStatus("processing");
+        setSavedConfig(formData);
       })
       .catch((err) => {
         console.error(err);
@@ -322,6 +326,7 @@ export default function VideoPage() {
                     min={3}
                     max={6}
                     onChange={field.onChange}
+                    disabled={loading || polling}
                   />
                 </Box>
               </Box>
@@ -349,7 +354,7 @@ export default function VideoPage() {
         </Button>
       </form>
 
-      <VideoPlayer id={videoId} />
+      <VideoPlayer id={videoId} initRatio={videoRatio} />
     </Container>
   );
 }
