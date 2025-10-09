@@ -4,10 +4,9 @@ import glob
 import json
 import shutil
 from natsort import natsorted
-from urllib.parse import unquote_plus, urlparse  # <<< ADDED urlparse
+from urllib.parse import unquote_plus, urlparse
 
 # MoviePy imports for clip duration and component composition
-# ... (rest of imports are the same)
 from moviepy import (
     VideoFileClip,
     AudioFileClip,
@@ -41,7 +40,8 @@ FALLBACK_IMAGE_DIR = "/var/task/images"
 # Define the archive prefix globally
 ARCHIVE_PREFIX = "processed-input/"
 
-# Target video resolution
+# Target video resolution (Will be overridden by config in lambda_handler)
+DEFAULT_ASPECT_RATIO = "16:9"
 TARGET_WIDTH = 1920
 TARGET_HEIGHT = 1080
 
@@ -78,7 +78,7 @@ def move_s3_object(bucket, old_key, new_key):
         print(f"WARNING: Failed to archive object {old_key}. Error: {e}")
 
 
-# --- CORE FUNCTION: COMBINE VIDEOS (REVERTED - Unchanged) ---
+# --- CORE FUNCTION: COMBINE VIDEOS (Unchanged) ---
 
 
 def combine_videos(video_paths: list, final_output_path: str):
@@ -146,15 +146,15 @@ def combine_videos(video_paths: list, final_output_path: str):
             final_clip.close()
 
 
-# --- UTILITY FUNCTION: DYNAMIC SUBTITLE GENERATOR (Punctuation-Based Chunking - Unchanged) ---
+# --- UTILITY FUNCTION: DYNAMIC SUBTITLE GENERATOR (Updated Signature) ---
 
 
 def generate_timed_text_clips(
-    text: str, duration: float, font_path: str, max_words_per_chunk: int = 4
+    text: str, duration: float, font_path: str, max_words_per_chunk: int
 ):
     """
     Splits text into chunks, prioritizing sentence structure/punctuation breaks,
-    while respecting a maximum word count per chunk.
+    while respecting a maximum word count per chunk (now passed dynamically).
     """
     words = text.split()
     chunks = []
@@ -211,7 +211,7 @@ def generate_timed_text_clips(
     return timed_clips
 
 
-# --- NEW UTILITY FUNCTION: TITLE GENERATOR ---
+# --- NEW UTILITY FUNCTION: TITLE GENERATOR (Unchanged) ---
 
 
 def generate_title_clip(text: str, duration: float, font_path: str):
@@ -235,7 +235,7 @@ def generate_title_clip(text: str, duration: float, font_path: str):
     return [title_clip]
 
 
-# --- UTILITY FUNCTION: IMAGE RESIZE AND CROP (Final API Fix - Unchanged) ---
+# --- UTILITY FUNCTION: IMAGE RESIZE AND CROP (No Global Reliance) ---
 
 
 def resize_and_crop_image(
@@ -243,9 +243,6 @@ def resize_and_crop_image(
 ) -> str:
     """
     Resizes and center-crops an image to the target resolution (e.g., 1920x1080).
-    Uses the direct object methods (.cropped() and .resized()) for compatibility.
-    Saves the result to output_path or overwrites the input file if output_path is None.
-    Returns the path to the resulting image file.
     """
     original_clip = None
     # Use the provided output_path or default to overwriting the input image
@@ -260,15 +257,15 @@ def resize_and_crop_image(
 
         # --- Start Image Processing ---
         print(
-            f"Processing image: {os.path.basename(image_path)}. Original size: {width}x{height}."
+            f"Processing image: {os.path.basename(image_path)}. Original size: {width}x{height}. Target: {target_width}x{target_height}"
         )
 
         # 1. Cropping Logic
         if abs(current_ratio - target_ratio) < 0.01:
-            # Check for near 16:9 - no crop needed
-            print("Image is already near 16:9 ratio. No crop needed.")
+            # Check for near target ratio - no crop needed
+            print("Image is already near target ratio. No crop needed.")
         elif current_ratio > target_ratio:
-            # Image is wider (e.g., 21:9). Crop width to match target height.
+            # Image is wider. Crop width to match target height.
             new_width = int(height * target_ratio)
             x_offset = (width - new_width) // 2
 
@@ -278,7 +275,7 @@ def resize_and_crop_image(
             )
             print(f"Cropping width from {width} to {new_width}.")
         else:
-            # Image is taller (e.g., 4:3). Crop height to match target width.
+            # Image is taller. Crop height to match target width.
             new_height = int(width / target_ratio)
             y_offset = (height - new_height) // 2
 
@@ -312,7 +309,7 @@ def resize_and_crop_image(
             original_clip.close()
 
 
-# --- CORE FUNCTION: CREATE VIDEO (UPDATED for Header Logic) ---
+# --- CORE FUNCTION: CREATE VIDEO (UPDATED Signature and FIX) ---
 
 
 def create_video_from_images_and_audio(
@@ -320,13 +317,14 @@ def create_video_from_images_and_audio(
     audio_path: str,
     output_path: str,
     segment_text: str,
-    is_header_segment: bool = False,  # <--- NEW ARGUMENT ADDED
+    is_header_segment: bool = False,
+    word_chunk_size: int = 4,
+    target_width: int = 1920,
+    target_height: int = 1080,
     fps: int = 1,
 ):
     """
     Creates a video from a sequence of images and a single audio file from local paths.
-    Pads the video duration to a minimum of 1.0s.
-    Conditionally applies header (title) or standard subtitle logic.
     """
     if not os.path.isfile(audio_path):
         print(f"Error: The specified audio file '{audio_path}' does not exist.")
@@ -345,7 +343,7 @@ def create_video_from_images_and_audio(
     video_segment_duration = max(audio_duration, MIN_ENCODE_DURATION)
     # --- END DURATION CALCULATION ---
 
-    # --- IMAGE SELECTION AND PROCESSING LOGIC (Unchanged) ---
+    # --- IMAGE SELECTION AND PROCESSING LOGIC (Uses new dynamic targets) ---
     local_image_files = [
         os.path.join(image_folder, img)
         for img in os.listdir(image_folder)
@@ -362,7 +360,6 @@ def create_video_from_images_and_audio(
         fallback_images = glob.glob(os.path.join(FALLBACK_IMAGE_DIR, "*.png"))
         fallback_images.extend(glob.glob(os.path.join(FALLBACK_IMAGE_DIR, "*.jpg")))
 
-        # *** os.path.join ***
         fallback_images.extend(glob.glob(os.path.join(FALLBACK_IMAGE_DIR, "*.jpeg")))
 
         if fallback_images:
@@ -395,14 +392,16 @@ def create_video_from_images_and_audio(
             temp_copies_to_cleanup.append(temp_path)
 
         resized_path = resize_and_crop_image(
-            current_path, TARGET_WIDTH, TARGET_HEIGHT, output_path=current_path
+            current_path, target_width, target_height, output_path=current_path
         )
         final_image_paths.append(resized_path)
 
     image_files = final_image_paths
     # --- END IMAGE SELECTION AND PROCESSING LOGIC ---
 
-    print(f"Content duration: {video_segment_duration:.2f}s.")
+    print(
+        f"Content duration: {video_segment_duration:.2f}s. Target Res: {target_width}x{target_height}."
+    )
 
     # --- CWD OVERRIDE FOR SUBPROCESS SAFETY ---
     original_cwd = os.getcwd()
@@ -425,12 +424,14 @@ def create_video_from_images_and_audio(
         print(f"Each image will be shown for {image_duration:.2f} seconds.")
 
         # 3. Create and concatenate image clips.
+        # FIX APPLIED: Removed the incorrect .set_size() call. Images are already correct size.
         clips = [ImageClip(path, duration=image_duration) for path in image_files]
+
         video_clip = concatenate_videoclips(clips, method="compose")
         video_clip.duration = video_segment_duration
         video_clip.audio = audio_clip  # Audio starts immediately
 
-        # --- DYNAMIC SUBTITLE LOGIC (UPDATED) ---
+        # --- DYNAMIC SUBTITLE LOGIC ---
         font_file = "/var/task/fonts/SubtitleFont.ttf"
         positioned_subtitle_clips = []
 
@@ -445,21 +446,26 @@ def create_video_from_images_and_audio(
 
         else:
             # Use the standard, chunked subtitle generator for content slides
-            print("Generating Standard Subtitle Clips (Chunked, Bottom-Aligned)...")
+            print(
+                f"Generating Standard Subtitle Clips (Chunked: {word_chunk_size}, Bottom-Aligned)..."
+            )
             subtitle_clips = generate_timed_text_clips(
-                segment_text, video_segment_duration, font_file, max_words_per_chunk=4
+                segment_text,
+                video_segment_duration,
+                font_file,
+                max_words_per_chunk=word_chunk_size,  # DYNAMIC CHUNK SIZE
             )
 
             for clip in subtitle_clips:
-                # Reposition standard subtitles to the bottom
-                clip = clip.with_position(("center", video_clip.h * 0.9))
+                # Reposition standard subtitles to the bottom (relative to the dynamic height)
+                clip = clip.with_position(("center", target_height * 0.9))
                 positioned_subtitle_clips.append(clip)
 
         # --- END DYNAMIC SUBTITLE LOGIC ---
 
-        # 4. BUILD THE FINAL COMPOSITE CLIP (No Fades Applied)
+        # 4. BUILD THE FINAL COMPOSITE CLIP
         video_clip_edit = CompositeVideoClip(
-            [video_clip] + positioned_subtitle_clips, size=video_clip.size
+            [video_clip] + positioned_subtitle_clips, size=(target_width, target_height)
         )
         video_clip_edit.duration = video_segment_duration
         video_clip_edit.audio = video_clip.audio
@@ -471,7 +477,12 @@ def create_video_from_images_and_audio(
             codec="libx264",
             audio_codec="aac",
             # Enforce uniform video properties for stable concatenation
-            ffmpeg_params=["-vf", "scale=1920:1080", "-pix_fmt", "yuv420p"],
+            ffmpeg_params=[
+                "-vf",
+                f"scale={target_width}:{target_height}",
+                "-pix_fmt",
+                "yuv420p",
+            ],
         )
         print(f"Video successfully created at {output_path}")
         return True
@@ -505,7 +516,7 @@ def create_video_from_images_and_audio(
                     print(f"Warning: Failed to cleanup temp image file {path}: {e}")
 
 
-# --- FINAL LAMBDA HANDLER (UPDATED with URL extraction fix) ---
+# --- FINAL LAMBDA HANDLER (UPDATED with Config extraction) ---
 
 
 def lambda_handler(event, context):
@@ -525,6 +536,12 @@ def lambda_handler(event, context):
     # Store a variable for the compilation ID, initialized to a fallback value
     compilation_id = datetime.now().strftime("%Y%m%d%H%M%S")
 
+    # Initialize config variables with defaults
+    word_chunk_size = 4
+    transition_style = "fade"
+    target_width = 1920
+    target_height = 1080
+
     try:
         # 1. Determine Bucket and Key (Assuming S3 trigger on highlights.json)
         record = event["Records"][0]
@@ -541,9 +558,40 @@ def lambda_handler(event, context):
         with open(local_json_path, "r") as f:
             full_manifest = json.load(f)
 
-        # --- EXTRACT ID FOR FILENAME ---
+        # --- EXTRACT ID AND CONFIGURATION ---
         compilation_id = full_manifest.get("id", compilation_id)
         highlights_data = full_manifest.get("highlights", [])
+
+        # --- NEW: EXTRACT CONFIGURATION PARAMETERS ---
+        config = full_manifest.get("config", {})
+
+        # A. Aspect Ratio (Updates TARGET_WIDTH/HEIGHT)
+        ratio_str = config.get("ratio", DEFAULT_ASPECT_RATIO)
+
+        if ratio_str == "9:16":
+            target_width, target_height = 1080, 1920  # Vertical (Shorts/Mobile)
+        elif ratio_str == "1:1":
+            target_width, target_height = 1080, 1080  # Square (Social)
+        else:  # Defaults to 16:9
+            target_width, target_height = 1920, 1080
+
+        print(
+            f"Set video resolution to {target_width}x{target_height} based on ratio: {ratio_str}"
+        )
+
+        # B. Transition Style
+        transition_style = config.get("transition", "fade")  # Supports 'fade' and 'cut'
+        print(f"Set transition style to: {transition_style}")
+
+        # C. Word Chunk Size
+        word_chunk_size = config.get("word_chunk", 4)
+        # Ensure it's an integer, fallback to 4 if invalid
+        try:
+            word_chunk_size = int(word_chunk_size)
+        except ValueError:
+            word_chunk_size = 4
+
+        print(f"Set word chunk size to: {word_chunk_size}")
         # ------------------------------------------
 
         # 3. Sort the data by 'order' field
@@ -594,8 +642,6 @@ def lambda_handler(event, context):
                         s3_key_raw = parsed_url.path.lstrip("/")
 
                     # 2. **CRITICAL FIX:** URL DECODE the key to pass the literal string to Boto3.
-                    # Boto3 expects the key as it appears in the S3 console (with spaces).
-                    # The key from the manifest is already URL-encoded (%20).
                     s3_key_to_use = unquote_plus(s3_key_raw, encoding="utf-8")
 
                     # We use the literal, unencoded key for the local filename
@@ -623,22 +669,26 @@ def lambda_handler(event, context):
             try:
                 s3_client.download_file(bucket, audio_s3_key, local_audio_path)
             except Exception as e:
+                # Log the 404 error explicitly as FATAL for this segment
                 print(
                     f"FATAL: Failed to download required audio file {audio_s3_key}. Skipping segment. Error: {e}"
                 )
                 shutil.rmtree(local_subfolder, ignore_errors=True)
-                continue
+                continue  # Skip to next segment
 
             # Define output path for the intermediate video
             intermediate_video_path = os.path.join(tmp_dir, f"{segment_name}.mp4")
 
-            # Call the main video creation function (now passing segment_text AND is_header_segment)
+            # Call the main video creation function (passing dynamic config)
             success = create_video_from_images_and_audio(
                 local_subfolder,
                 local_audio_path,
                 intermediate_video_path,
                 segment_text,
-                is_header_segment=is_header_segment,  # <--- ARGUMENT PASSED
+                is_header_segment=is_header_segment,
+                word_chunk_size=word_chunk_size,  # DYNAMIC WORD CHUNK
+                target_width=target_width,  # DYNAMIC WIDTH
+                target_height=target_height,  # DYNAMIC HEIGHT
             )
 
             if success:
@@ -651,15 +701,15 @@ def lambda_handler(event, context):
         # 5. Combine all videos and upload the final result
         if intermediate_video_paths:
 
-            # --- STABLE FADE TRANSITION IMPLEMENTATION ---
+            # --- STABLE FADE/CUT TRANSITION IMPLEMENTATION (UPDATED) ---
             final_paths_to_combine = []
 
             # Interleave the black transition video path after every segment except the last one
             for i, video_path in enumerate(intermediate_video_paths):
                 final_paths_to_combine.append(video_path)
 
-                # Add transition unless this is the very last video clip
-                if i < len(intermediate_video_paths) - 1:
+                # Add transition unless this is the very last video clip AND the style is 'fade'
+                if i < len(intermediate_video_paths) - 1 and transition_style == "fade":
                     final_paths_to_combine.append(TRANSITION_VIDEO_PATH)
 
             # Define the final output file name
