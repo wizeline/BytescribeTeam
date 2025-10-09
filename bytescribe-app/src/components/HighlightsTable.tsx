@@ -14,6 +14,8 @@ import {
   Select,
   Typography,
   useTheme,
+  TextField,
+  Slider,
 } from "@mui/material";
 import * as yup from "yup";
 import { yupResolver } from "@hookform/resolvers/yup";
@@ -45,6 +47,27 @@ const schema = yup
   .required();
 
 const placeHolderImg = "/wizeline1-640x400.jpg";
+
+const availableModelOptions = [
+  { value: "", label: "Default (amazon.titan-text-express-v1)" },
+  {
+    value: "amazon.titan-text-express-v1",
+    label: "Amazon Titan Text Express v1",
+  },
+  { value: "amazon.titan-text-lite-v1", label: "Amazon Titan Text Lite v1" },
+  {
+    value: "anthropic.claude-3-haiku-20240307-v1:0",
+    label: "Anthropic Claude 3 Haiku",
+  },
+  {
+    value: "anthropic.claude-3-sonnet-20240229-v1:0",
+    label: "Anthropic Claude 3 Sonnet",
+  },
+  {
+    value: "anthropic.claude-3-5-sonnet-20240620-v1:0",
+    label: "Anthropic Claude 3.5 Sonnet",
+  },
+];
 
 export default function HighlightsTable() {
   const { summary, setSummary } = useContext(ArticleSummaryContext);
@@ -104,6 +127,10 @@ export default function HighlightsTable() {
   );
 
   const [loading, setLoading] = useState(false);
+  // UI controls for generating highlights
+  const [modelId, setModelId] = useState("");
+  const [temperatureValue, setTemperatureValue] = useState<number>(0.7);
+  const [wordsPerHighlight, setWordsPerHighlight] = useState<number>(30);
 
   const {
     control,
@@ -295,6 +322,218 @@ export default function HighlightsTable() {
     }, 10000);
   }, [fetchJob]);
 
+  // Generate highlights action — calls crawler Lambda to get highlights from the stored URL
+  const generateHighlights = async () => {
+    const crawlerApiUrl = process.env.NEXT_PUBLIC_CRAWLER_API;
+
+    if (!crawlerApiUrl) {
+      alert("Crawler API URL not configured. Set NEXT_PUBLIC_CRAWLER_API.");
+      return;
+    }
+
+    if (!summary.url) {
+      alert("No URL found. Please go back and enter a URL first.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const payload: Record<string, unknown> = {
+        url: summary.url,
+        full: true,
+        async: true, // Use async mode for better UX
+      };
+
+      // Add Bedrock parameters if available
+      if (modelId) payload.model_id = modelId;
+      payload.text_config = {
+        temperature: Number(temperatureValue),
+        maxTokenCount: 2048, // Default token count
+      };
+
+      const res = await fetch(crawlerApiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(`HTTP ${res.status}: ${t}`);
+      }
+
+      const data = await res.json();
+
+      // Handle async response with job_id
+      if (data && data.job_id) {
+        // Start polling for job completion
+        const jobId = data.job_id;
+        const pollInterval = setInterval(async () => {
+          try {
+            const statusRes = await fetch(crawlerApiUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "job_status", job_id: jobId }),
+            });
+
+            if (statusRes.ok) {
+              const statusData = await statusRes.json();
+
+              if (statusData.status === "completed") {
+                clearInterval(pollInterval);
+
+                // Extract highlights from completed job
+                const respObj = (statusData.result ?? statusData) as Record<
+                  string,
+                  unknown
+                >;
+                const bullets = Array.isArray(
+                  respObj.summary &&
+                    (respObj.summary as Record<string, unknown>).bullets,
+                )
+                  ? ((respObj.summary as Record<string, unknown>)
+                      .bullets as Array<Record<string, unknown>>)
+                  : [];
+
+                if (bullets.length) {
+                  const newHighlights: {
+                    text: string;
+                    image?: {
+                      url: string;
+                      s3_key: string;
+                      title: string;
+                      caption: string;
+                    };
+                  }[] = [];
+
+                  // Add title as first highlight
+                  newHighlights.push({ text: String(respObj.title || "") });
+
+                  // Process bullets into highlights
+                  bullets.forEach((bullet) => {
+                    const text = bullet.text ? String(bullet.text) : "";
+                    const imageArr = Array.isArray(bullet.image_url)
+                      ? (bullet.image_url as Array<Record<string, unknown>>)
+                      : undefined;
+                    const firstImg =
+                      imageArr && imageArr[0] ? imageArr[0] : undefined;
+                    const image =
+                      firstImg && firstImg.image_url
+                        ? {
+                            url: String(firstImg.image_url),
+                            s3_key: String(firstImg.image_url).replace(
+                              "s3://bytescribe-image-audio-bucket/",
+                              "",
+                            ),
+                            title: String(firstImg.title ?? ""),
+                            caption: String(firstImg.caption ?? ""),
+                          }
+                        : undefined;
+                    newHighlights.push({ text, image });
+                  });
+
+                  // Update summary and table data
+                  setSummary({
+                    ...summary,
+                    title: String(respObj.title || ""),
+                    highlights: newHighlights,
+                  });
+
+                  const mapped = newHighlights.map((h, id) => ({
+                    order: id,
+                    text: h.text,
+                    image: normalizeImageUrl(h.image?.url) || null,
+                    imageCaption: String(h.image?.caption ?? ""),
+                  }));
+                  setRowData(mapped);
+                } else {
+                  alert("No highlights found in the crawled content.");
+                }
+                setLoading(false);
+              } else if (statusData.status === "failed") {
+                clearInterval(pollInterval);
+                setLoading(false);
+                alert(
+                  "Crawling job failed: " +
+                    (statusData.error || "Unknown error"),
+                );
+              }
+            }
+          } catch (pollErr) {
+            console.error("Error polling job status:", pollErr);
+          }
+        }, 3000); // Poll every 3 seconds
+      } else {
+        // Handle immediate response (non-async mode)
+        const respObj = data as Record<string, unknown>;
+        const bullets = Array.isArray(
+          respObj.summary &&
+            (respObj.summary as Record<string, unknown>).bullets,
+        )
+          ? ((respObj.summary as Record<string, unknown>).bullets as Array<
+              Record<string, unknown>
+            >)
+          : [];
+
+        if (bullets.length) {
+          const newHighlights: {
+            text: string;
+            image?: {
+              url: string;
+              s3_key: string;
+              title: string;
+              caption: string;
+            };
+          }[] = [];
+
+          newHighlights.push({ text: String(respObj.title || "") });
+          bullets.forEach((bullet) => {
+            const text = bullet.text ? String(bullet.text) : "";
+            const imageArr = Array.isArray(bullet.image_url)
+              ? (bullet.image_url as Array<Record<string, unknown>>)
+              : undefined;
+            const firstImg = imageArr && imageArr[0] ? imageArr[0] : undefined;
+            const image =
+              firstImg && firstImg.image_url
+                ? {
+                    url: String(firstImg.image_url),
+                    s3_key: String(firstImg.image_url).replace(
+                      "s3://bytescribe-image-audio-bucket/",
+                      "",
+                    ),
+                    title: String(firstImg.title ?? ""),
+                    caption: String(firstImg.caption ?? ""),
+                  }
+                : undefined;
+            newHighlights.push({ text, image });
+          });
+
+          setSummary({
+            ...summary,
+            title: String(respObj.title || ""),
+            highlights: newHighlights,
+          });
+
+          const mapped = newHighlights.map((h, id) => ({
+            order: id,
+            text: h.text,
+            image: normalizeImageUrl(h.image?.url) || null,
+            imageCaption: String(h.image?.caption ?? ""),
+          }));
+          setRowData(mapped);
+        } else {
+          alert("No highlights found in the crawled content.");
+        }
+        setLoading(false);
+      }
+    } catch (err: unknown) {
+      console.error(err);
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Error crawling URL: ${msg}`);
+      setLoading(false);
+    }
+  };
+
   const router = useRouter();
 
   useEffect(() => {
@@ -369,11 +608,71 @@ export default function HighlightsTable() {
     <>
       <form onSubmit={handleSubmit(onSubmit)}>
         <Box display={"flex"} flexDirection={"column"} gap={3} marginBottom={5}>
-          {!highlights?.length ? (
-            <Box textAlign={"center"} py={4}>
-              No data found. Go back and try again
+          {/* --- Controls: Model / Temperature / Number of Words per Highlight --- */}
+          <Paper elevation={1} sx={{ padding: 2 }}>
+            <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
+              <Box sx={{ minWidth: 240 }}>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  Model:
+                </Typography>
+                <Select
+                  fullWidth
+                  value={modelId}
+                  onChange={(e) => setModelId(String(e.target.value))}
+                  size="small"
+                >
+                  {availableModelOptions.map((opt) => (
+                    <MenuItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </Box>
+
+              <Box sx={{ width: 220 }}>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  Temperature: {temperatureValue}
+                </Typography>
+                <Slider
+                  min={0}
+                  max={1}
+                  step={0.1}
+                  value={temperatureValue}
+                  onChange={(_, v) =>
+                    setTemperatureValue(Array.isArray(v) ? v[0] : (v as number))
+                  }
+                  valueLabelDisplay="auto"
+                />
+              </Box>
+
+              <Box sx={{ minWidth: 160 }}>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  Number of Words/Highlight
+                </Typography>
+                <TextField
+                  size="small"
+                  type="number"
+                  inputProps={{ min: 1 }}
+                  value={wordsPerHighlight}
+                  onChange={(e) =>
+                    setWordsPerHighlight(Number(e.target.value || 0))
+                  }
+                />
+              </Box>
+
+              <Box sx={{ ml: "auto" }}>
+                <Button
+                  variant="outlined"
+                  onClick={generateHighlights}
+                  disabled={loading}
+                >
+                  Generate
+                </Button>
+              </Box>
             </Box>
-          ) : (
+          </Paper>
+
+          {!!highlights?.length && (
             <Paper elevation={2}>
               <DataGrid
                 rows={rowData}
