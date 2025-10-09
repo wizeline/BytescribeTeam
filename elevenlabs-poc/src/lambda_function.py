@@ -36,33 +36,33 @@ def _proxy_response(status_code: int, payload: dict):
     }
 
 
-def convert_text_to_speech(text_segments, fileName="audio"):
+def convert_text_to_speech(text_segments, voice_id=voiceId):
     all_audio = []
     try:
         for segment in text_segments:
             print(f"Start converting text: {segment}")
             audio = elevenlabs.text_to_speech.convert(
                 text=segment,
-                voice_id=voiceId,
+                voice_id=voice_id,
                 model_id=modelId,
                 output_format="mp3_44100_128",
             )
             all_audio.append(audio)
 
         for j, audio_segment in enumerate(all_audio):
-            save(audio_segment, f"/tmp/{fileName}{j + 1}.mp3")
-            print(f"Audio saved as /tmp/{fileName}{j + 1}.mp3")
+            save(audio_segment, f"/tmp/audio{j + 1}.mp3")
+            print(f"Audio saved as /tmp/audio{j + 1}.mp3")
     except Exception as e:
         print(e)
         print(f'Error requesting ElevenLabs convert "{text_segments}" to speech.')
         raise e
 
 
-def upload_file_to_s3(id, data):
+def upload_file_to_s3(id, highlights, config):
     result = []
 
     try:
-        for i, highlight in enumerate(data):
+        for i, highlight in enumerate(highlights):
             s3.upload_file(
                 f"/tmp/audio{i + 1}.mp3",
                 bucketName,
@@ -73,18 +73,20 @@ def upload_file_to_s3(id, data):
             )
             result.append(
                 {
-                    "order": highlight["order"],
-                    "text": highlight["text"],
-                    "image": highlight["image"],
+                    "order": i + 1,
+                    "text": highlight.get("text", ""),
+                    "image": highlight.get("image", {}),
                     "audio": f"input/highlight{i + 1}/audio{i + 1}.mp3",
                 }
             )
 
         # json file
+        content = {"id": id, "highlights": result, "config": config}
+        print(f"highlights.json content: {content}")
         s3.put_object(
             Bucket=bucketName,
             Key="input/highlights.json",
-            Body=json.dumps({"id": id, "highlights": result}),
+            Body=json.dumps(content),
             ContentType="application/json",
         )
         print(f"File highlights.json uploaded to s3 bucket: input/highlights.json")
@@ -107,7 +109,16 @@ def _process_async_job(event, context):
         job_id = job_data["job_id"]
         highlights = job_data["highlights"]
         text_segments = job_data["text_segments"]
-        print(f"Process an async job in the background: {job_id}, {text_segments}")
+        voice_id = job_data["voice_id"]
+        config = {
+            "ratio": job_data["ratio"],
+            "transition": job_data["transition"],
+            "word_chunk": job_data["word_chunk"],
+        }
+
+        print(
+            f"Process an async job in the background: {job_id}, {text_segments}, {config}"
+        )
 
         # Update job status
         def update_job_status(status, progress=None, result=None, error=None):
@@ -133,10 +144,10 @@ def _process_async_job(event, context):
 
         # Process the job using existing logic
         update_job_status("processing", "Generating audio...")
-        convert_text_to_speech(text_segments)
+        convert_text_to_speech(text_segments, voice_id)
 
         update_job_status("processing", "Uploading audio...")
-        upload_file_to_s3(job_id, highlights)
+        upload_file_to_s3(job_id, highlights, config)
 
         # Mark job as completed
         update_job_status("completed", "Generating audio completed successfully.")
@@ -187,6 +198,10 @@ def lambda_handler(event, context):
 
     # Check if async processing is requested
     async_mode = event.get("async", False)
+    voice_id = event.get("voiceId", voiceId)
+    ratio = event.get("ratio", "16:9")
+    transition = event.get("transition", "fade")
+    word_chunk = event.get("wordChunk", 20)
     highlights = event.get("highlights", [])
     for item in highlights:
         if not item.get("text"):
@@ -226,6 +241,10 @@ def lambda_handler(event, context):
                 "job_id": job_id,
                 "highlights": highlights,
                 "text_segments": text_segments,
+                "voice_id": voice_id,
+                "ratio": ratio,
+                "transition": transition,
+                "word_chunk": word_chunk,
             }
 
             lambda_client.invoke(
@@ -254,13 +273,18 @@ def lambda_handler(event, context):
             )
     else:
         try:
-            convert_text_to_speech(text_segments)
-            upload_file_to_s3(job_id, highlights)
+            config = {
+                "ratio": ratio,
+                "transition": transition,
+                "word_chunk": word_chunk,
+            }
+            convert_text_to_speech(text_segments, voice_id)
+            upload_file_to_s3(job_id, highlights, config)
             print(f"Finish converting text to speech.")
             return {
                 "statusCode": 200,
                 "body": {
-                    "id": job_id,
+                    "video_id": job_id,
                 },
             }
         except Exception as e:

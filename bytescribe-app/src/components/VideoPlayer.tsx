@@ -1,5 +1,5 @@
 "use client";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import ReactPlayer from "react-player";
 import {
   Backdrop,
@@ -13,18 +13,28 @@ import { useRouter } from "next/navigation";
 
 const VIDEO_TIMEOUT = 300000;
 const INTERVAL_DELAY = 10000;
+const availableRatios = ["16:9", "9:16", "1:1"];
 
-export default function VideoPlayer({ id }: { id: string }) {
+export default function VideoPlayer({ id, initRatio }: { id: string, initRatio?: string }) {
   const mediaUrl = process.env.NEXT_PUBLIC_S3_BUCKET || "";
-  const objectUrl = `${mediaUrl}/output_videos/${id}.mp4`;
+  const videoUrl = `${mediaUrl}/output_videos/${id}.mp4`;
+
+  const [ratio, setRatio] = useState(availableRatios.includes(initRatio || "") ? initRatio : "16:9");
+  const videoWidth = useMemo(() => ratio === "9:16" ? 360 : 640, [ratio]);
+  const videoHeight = useMemo(() => ratio === "16:9" ? 360 : 640, [ratio]);
+
+  useEffect(() => {
+    if (availableRatios.includes(initRatio || "")) {
+      setRatio(initRatio!);
+    }}, [initRatio])
 
   const [available, setAvailable] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
 
   const checkAvailability = useCallback(async () => {
     try {
-      const response = await fetch(objectUrl, { method: "HEAD" });
+      const response = await fetch(videoUrl, { method: "HEAD" });
       if (response.ok) {
         console.log("Video found!");
         return true;
@@ -36,7 +46,7 @@ export default function VideoPlayer({ id }: { id: string }) {
       console.log("Error checking video:", error);
       return false;
     }
-  }, [objectUrl]);
+  }, [videoUrl]);
 
   const loadVideo = useCallback(async () => {
     setLoading(true);
@@ -83,6 +93,7 @@ export default function VideoPlayer({ id }: { id: string }) {
   return (
     <>
       <Box display={"flex"} flexDirection={"column"} gap={4} marginBottom={5}>
+        {ratio}
         <Box
           display={"flex"}
           flexDirection={"column"}
@@ -97,11 +108,11 @@ export default function VideoPlayer({ id }: { id: string }) {
           )}
           <ReactPlayer
             key={available ? "O" : "I"}
-            src={objectUrl}
+            src={videoUrl}
             controls={true}
             volume={0.25}
-            width={640}
-            height={360}
+            width={videoWidth}
+            height={videoHeight}
           />
         </Box>
         <Box
@@ -115,7 +126,16 @@ export default function VideoPlayer({ id }: { id: string }) {
             </Button>
           </Box>
           <Box display={"flex"} gap={2}>
-            {!available && (
+            {available ?  (
+              <Button
+                variant="contained"
+                onClick={() => {
+                  window.open(videoUrl, '_blank');
+                }}
+              >
+                Download
+              </Button>
+            ) : (
               <Button
                 variant="contained"
                 disabled={loading}

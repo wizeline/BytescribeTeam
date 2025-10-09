@@ -23,11 +23,9 @@ import {
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import * as yup from "yup";
 import { yupResolver } from "@hookform/resolvers/yup";
-import { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useContext, useMemo, useState } from "react";
 import { ArticleSummaryContext } from "@/contexts/ArticleSummary";
 import { useRouter } from "next/navigation";
-
-const apiUrl = process.env.NEXT_PUBLIC_ELEVENLABS_API;
 
 const schema = yup
   .object({
@@ -285,70 +283,6 @@ export default function HighlightsTable() {
     [errors.items, fields, imageList],
   );
 
-  const [jobId, setJobId] = useState("");
-  const [jobStatus, setJobStatus] = useState("");
-
-  const fetchJob = useCallback(async () => {
-    const payload = {
-      action: "job_status",
-      job_id: jobId,
-    };
-
-    let result;
-
-    if (!apiUrl) {
-      alert("Lambda API URL not configured. Set NEXT_PUBLIC_ELEVENLABS_API.");
-      return;
-    }
-
-    await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`Request failed with ${response.status}`);
-        }
-
-        const data = await response.json();
-        result = data.body;
-      })
-      .catch((err) => {
-        console.error(err);
-        result = `Error sending URL: ${err.message || err}`;
-      });
-
-    return result;
-  }, [jobId]);
-
-  const fetchHighlights = useCallback(async () => {
-    setLoading(true);
-
-    const start = Date.now();
-    const intervalId = setInterval(async () => {
-      // Check if timeout reached
-      if (Date.now() - start >= 60000) {
-        console.log("Sorry, timeout.");
-        clearInterval(intervalId);
-        setLoading(false);
-        return;
-      }
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const job: any = await fetchJob();
-      console.log("job", job);
-
-      if (job.status === "completed") {
-        setJobStatus("completed");
-        setLoading(false);
-        clearInterval(intervalId);
-      }
-    }, 10000);
-  }, [fetchJob]);
-
   // Generate highlights action — calls crawler Lambda to get highlights from the stored URL
   const generateHighlights = async () => {
     const crawlerApiUrl = process.env.NEXT_PUBLIC_CRAWLER_API;
@@ -575,74 +509,14 @@ export default function HighlightsTable() {
 
   const router = useRouter();
 
-  useEffect(() => {
-    if (!!jobId) {
-      if (jobStatus === "completed") {
-        router.push(`video/${jobId}`);
-      } else {
-        fetchHighlights();
-      }
-    }
-  }, [fetchHighlights, jobId, jobStatus, router]);
-
-  const onSubmit = async (data: {
-    items: (Omit<(typeof rowData)[0], "image" | "imageCaption"> & {
-      image: string | null;
-    })[];
-  }) => {
-    if (!apiUrl) {
-      alert("Lambda API URL not configured. Set NEXT_PUBLIC_ELEVENLABS_API.");
-      return;
-    }
-
+  const onSubmit = async () => {
     setLoading(true);
-
-    const payload = data.items.map((highlight) => {
-      const highlightImg = highlight.image
-        ? {
-            src: highlight.image,
-            s3_key:
-              imageList.find(({ url }) => highlight.image === url)?.s3_key ||
-              "",
-          }
-        : {};
-
-      return {
-        ...highlight,
-        image: highlightImg,
-      };
-    });
-
-    fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ highlights: payload, async: true }),
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`Request failed with ${response.status}`);
-        }
-
-        const data = await response.json();
-        const jobId = data.body?.job_id;
-        if (!jobId) {
-          throw new Error(`No job id return. Please try again later.`);
-        }
-
-        setJobId(jobId);
-        setJobStatus("processing");
-        // Switch UI to show highlights/processing
-        setHighlightsExpanded(true);
-        setConfigExpanded(false);
-      })
-      .catch((err) => {
-        console.error(err);
-        alert(`Error sending URL: ${err.message || err}`);
-        setLoading(false);
-      });
-  };
+    const isFormValid = await trigger();
+    if (isFormValid) {
+      router.push("video");
+    }
+    setLoading(false);
+  }
 
   const { palette } = useTheme();
 
