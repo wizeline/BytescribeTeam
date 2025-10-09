@@ -8,19 +8,26 @@ import {
   TextField,
   Typography,
   Paper,
+  InputAdornment,
+  IconButton,
 } from "@mui/material";
+import CancelIcon from "@mui/icons-material/Cancel";
 import { useRouter } from "next/navigation";
 import { useContext, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 
 export default function UrlBox(props: BoxProps) {
+  // Read the shared summary so we can pre-fill the URL if it's already set
+  const { setSummary, summary } = useContext(ArticleSummaryContext);
+
   const {
     control,
     handleSubmit,
     formState: { isValid },
   } = useForm({
     defaultValues: {
-      urlPath: "",
+      // If a URL was previously stored in the summary, show it (decoded)
+      urlPath: summary?.url ? decodeURI(String(summary.url)) : "",
     },
     mode: "onChange",
   });
@@ -28,15 +35,14 @@ export default function UrlBox(props: BoxProps) {
   const [loading] = useState(false);
   const router = useRouter();
 
-  const { setSummary } = useContext(ArticleSummaryContext);
-
   // Simplified submit: store the provided URL in the shared ArticleSummary
   // context and navigate to the adjust page. The actual crawl/generation
   // will be performed later by the Generate button in HighlightsTable.
   const onSubmit = async (data: { urlPath: string }) => {
     const { urlPath } = data;
-    // Store the raw URL in summary for downstream usage
-    setSummary({ title: "", highlights: [], url: encodeURI(urlPath) });
+    // Merge the provided URL into the existing summary so we don't wipe out
+    // any previously stored title/highlights when navigating back and forth.
+    setSummary({ ...summary, url: encodeURI(String(urlPath)) });
     router.push("adjust");
   };
 
@@ -100,6 +106,26 @@ export default function UrlBox(props: BoxProps) {
                       (fieldState.error.message || "Failed to validate.")
                     }
                     sx={{ boxShadow: 2, borderRadius: 1 }}
+                    slotProps={{
+                      input: {
+                        endAdornment: field.value ? (
+                          <InputAdornment position="end">
+                            <IconButton
+                              size="small"
+                              aria-label="clear url"
+                              onClick={() => {
+                                // Clear the input value in the form
+                                field.onChange("");
+                              }}
+                            >
+                              <CancelIcon
+                                sx={{ fontSize: 16, lineHeight: 1 }}
+                              />
+                            </IconButton>
+                          </InputAdornment>
+                        ) : undefined,
+                      },
+                    }}
                   />
                 )}
                 rules={{
