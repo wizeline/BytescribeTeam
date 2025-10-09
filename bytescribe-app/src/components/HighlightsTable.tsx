@@ -16,7 +16,11 @@ import {
   useTheme,
   TextField,
   Slider,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from "@mui/material";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import * as yup from "yup";
 import { yupResolver } from "@hookform/resolvers/yup";
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
@@ -66,6 +70,10 @@ const availableModelOptions = [
 export default function HighlightsTable() {
   const { summary, setSummary } = useContext(ArticleSummaryContext);
   const { highlights } = summary;
+
+  // Accordion states for collapsing sections
+  const [configExpanded, setConfigExpanded] = useState(true);
+  const [highlightsExpanded, setHighlightsExpanded] = useState(true);
 
   console.log("summary", summary);
 
@@ -461,6 +469,9 @@ export default function HighlightsTable() {
                     }))
                     .filter((r) => r.order > 0);
                   setRowData(mapped);
+                  // Expand highlights and collapse configuration panel
+                  setHighlightsExpanded(true);
+                  setConfigExpanded(false);
                 } else {
                   alert("No highlights found in the crawled content.");
                 }
@@ -613,6 +624,9 @@ export default function HighlightsTable() {
 
         setJobId(jobId);
         setJobStatus("processing");
+        // Switch UI to show highlights/processing
+        setHighlightsExpanded(true);
+        setConfigExpanded(false);
       })
       .catch((err) => {
         console.error(err);
@@ -628,136 +642,156 @@ export default function HighlightsTable() {
       <form onSubmit={handleSubmit(onSubmit)}>
         <Box display={"flex"} flexDirection={"column"} gap={3} marginBottom={5}>
           {/* --- Controls: Model / Temperature / Number of Words per Highlight --- */}
-          <Paper elevation={1} sx={{ padding: 2 }}>
-            {/* Controls row: force single-line layout. On very small screens allow horizontal scroll */}
-            <Box
-              display="flex"
-              gap={2}
-              alignItems="center"
-              sx={{
-                flexWrap: "nowrap",
-                overflowX: { xs: "auto", sm: "visible" },
-                justifyContent: "space-between",
-              }}
-            >
-              <Box sx={{ minWidth: 240 }}>
-                <Typography variant="body2" sx={{ mb: 1 }}>
-                  Model:
-                </Typography>
-                <Select
-                  fullWidth
-                  value={modelId}
-                  onChange={(e) => setModelId(String(e.target.value))}
-                  size="small"
+          <Accordion
+            expanded={configExpanded}
+            onChange={() => setConfigExpanded((s) => !s)}
+          >
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="subtitle1">Configuration</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Paper elevation={1} sx={{ padding: 2 }}>
+                {/* Controls row: force single-line layout. On very small screens allow horizontal scroll */}
+                <Box
+                  display="flex"
+                  gap={2}
+                  alignItems="center"
+                  sx={{
+                    flexWrap: "nowrap",
+                    overflowX: { xs: "auto", sm: "visible" },
+                    justifyContent: "space-between",
+                  }}
                 >
-                  {availableModelOptions.map((opt) => (
-                    <MenuItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </Box>
+                  <Box sx={{ minWidth: 240 }}>
+                    <Typography variant="body2" sx={{ mb: 1 }}>
+                      Model:
+                    </Typography>
+                    <Select
+                      fullWidth
+                      value={modelId}
+                      onChange={(e) => setModelId(String(e.target.value))}
+                      size="small"
+                    >
+                      {availableModelOptions.map((opt) => (
+                        <MenuItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </Box>
 
-              <Box sx={{ width: 220 }}>
-                <Typography variant="body2" sx={{ mb: 1 }}>
-                  Temperature: {temperatureValue}
-                </Typography>
-                <Slider
-                  min={0}
-                  max={1}
-                  step={0.1}
-                  value={temperatureValue}
-                  onChange={(_, v) =>
-                    setTemperatureValue(Array.isArray(v) ? v[0] : (v as number))
-                  }
-                  valueLabelDisplay="auto"
-                />
-              </Box>
+                  <Box sx={{ width: 220 }}>
+                    <Typography variant="body2" sx={{ mb: 1 }}>
+                      Temperature: {temperatureValue}
+                    </Typography>
+                    <Slider
+                      min={0}
+                      max={1}
+                      step={0.1}
+                      value={temperatureValue}
+                      onChange={(_, v) =>
+                        setTemperatureValue(
+                          Array.isArray(v) ? v[0] : (v as number),
+                        )
+                      }
+                      valueLabelDisplay="auto"
+                    />
+                  </Box>
 
-              <Box sx={{ minWidth: 160 }}>
-                <Typography variant="body2" sx={{ mb: 1 }}>
-                  Number of Words/Highlight
-                </Typography>
-                <TextField
-                  size="small"
-                  type="number"
-                  inputProps={{ min: 1 }}
-                  value={wordsPerHighlight}
-                  onChange={(e) =>
-                    setWordsPerHighlight(Number(e.target.value || 0))
-                  }
-                />
-              </Box>
-            </Box>
+                  <Box sx={{ minWidth: 160 }}>
+                    <Typography variant="body2" sx={{ mb: 1 }}>
+                      Number of Words/Highlight
+                    </Typography>
+                    <TextField
+                      size="small"
+                      type="number"
+                      inputProps={{ min: 1 }}
+                      value={wordsPerHighlight}
+                      onChange={(e) =>
+                        setWordsPerHighlight(Number(e.target.value || 0))
+                      }
+                    />
+                  </Box>
+                </Box>
 
-            {/* Generate button placed on its own full-width row, centered for clarity */}
-            <Box
-              sx={{
-                display: "flex",
-                justifyContent: "center",
-                mt: 2,
-                width: "100%",
-                flexBasis: "100%",
-              }}
-            >
-              <Button
-                variant="contained"
-                onClick={generateHighlights}
-                disabled={loading}
-                sx={{ width: { xs: "90%", sm: "auto" } }}
-              >
-                Generate
-              </Button>
-            </Box>
-          </Paper>
+                {/* Generate button placed on its own full-width row, centered for clarity */}
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "center",
+                    mt: 2,
+                    width: "100%",
+                    flexBasis: "100%",
+                  }}
+                >
+                  <Button
+                    variant="contained"
+                    onClick={generateHighlights}
+                    disabled={loading}
+                    sx={{ width: { xs: "90%", sm: "auto" } }}
+                  >
+                    Generate
+                  </Button>
+                </Box>
+              </Paper>
+            </AccordionDetails>
+          </Accordion>
 
           {!!highlights?.length && (
-            <>
-              <Paper elevation={1} sx={{ padding: 2, mb: 2 }}>
-                <Typography variant="body2" sx={{ mb: 1 }}>
-                  Title
-                </Typography>
-                <TextField
-                  fullWidth
-                  size="small"
-                  value={summary.title || ""}
-                  onChange={(e) =>
-                    setSummary({
-                      ...summary,
-                      title: String(e.target.value || ""),
-                    })
-                  }
-                />
-              </Paper>
+            <Accordion
+              expanded={highlightsExpanded}
+              onChange={() => setHighlightsExpanded((s) => !s)}
+            >
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography variant="subtitle1">Highlights</Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Paper elevation={1} sx={{ padding: 2, mb: 2 }}>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    Title
+                  </Typography>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    value={summary.title || ""}
+                    onChange={(e) =>
+                      setSummary({
+                        ...summary,
+                        title: String(e.target.value || ""),
+                      })
+                    }
+                  />
+                </Paper>
 
-              <Paper elevation={2}>
-                <DataGrid
-                  rows={rowData}
-                  getRowId={({ order }) => order}
-                  columns={columns}
-                  getRowHeight={() => "auto"}
-                  initialState={{
-                    pagination: {
-                      paginationModel: {
-                        pageSize: 10,
+                <Paper elevation={2}>
+                  <DataGrid
+                    rows={rowData}
+                    getRowId={({ order }) => order}
+                    columns={columns}
+                    getRowHeight={() => "auto"}
+                    initialState={{
+                      pagination: {
+                        paginationModel: {
+                          pageSize: 10,
+                        },
                       },
-                    },
-                  }}
-                  pageSizeOptions={[10]}
-                  // checkboxSelection
-                  processRowUpdate={(newRow) => {
-                    updateRow(newRow);
-                    return newRow;
-                  }}
-                  sx={{
-                    "& .MuiDataGrid-cell": {
-                      paddingY: 2, // Adds vertical padding to rows
-                    },
-                  }}
-                  loading={loading}
-                />
-              </Paper>
-            </>
+                    }}
+                    pageSizeOptions={[10]}
+                    // checkboxSelection
+                    processRowUpdate={(newRow) => {
+                      updateRow(newRow);
+                      return newRow;
+                    }}
+                    sx={{
+                      "& .MuiDataGrid-cell": {
+                        paddingY: 2, // Adds vertical padding to rows
+                      },
+                    }}
+                    loading={loading}
+                  />
+                </Paper>
+              </AccordionDetails>
+            </Accordion>
           )}
           <Box display={"flex"} justifyContent={"space-between"}>
             <Button variant="contained" onClick={() => router.push("home")}>
