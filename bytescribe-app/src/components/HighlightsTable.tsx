@@ -17,9 +17,11 @@ import {
 } from "@mui/material";
 import * as yup from "yup";
 import { yupResolver } from "@hookform/resolvers/yup";
-import { useContext, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { ArticleSummaryContext } from "@/contexts/ArticleSummary";
 import { useRouter } from "next/navigation";
+
+const apiUrl = process.env.NEXT_PUBLIC_ELEVENLABS_API;
 
 const schema = yup
   .object({
@@ -50,16 +52,54 @@ export default function HighlightsTable() {
 
   console.log("summary", summary);
 
+  const normalizeImageUrl = (url?: string | null) => {
+    if (!url) return null;
+    // Already an http(s) url
+    if (url.startsWith("http://") || url.startsWith("https://")) return url;
+    // s3://bucket/key -> try to convert
+    if (url.startsWith("s3://")) {
+      const configured = process.env.NEXT_PUBLIC_S3_BUCKET?.replace(/\/$/, "");
+      // common internal replacement used elsewhere in repo
+      const prefix = "s3://bytescribe-image-audio-bucket/";
+      if (configured && url.startsWith(prefix)) {
+        return configured + "/" + url.slice(prefix.length);
+      }
+      // generic fallback: s3://bucket/key -> https://bucket.s3.amazonaws.com/key
+      const without = url.slice(5); // remove s3://
+      const idx = without.indexOf("/");
+      if (idx === -1) return `https://${without}.s3.amazonaws.com`;
+      const bucket = without.slice(0, idx);
+      const key = without.slice(idx + 1);
+      return `https://${bucket}.s3.amazonaws.com/${key}`;
+    }
+    return url;
+  };
+
   const imageList = (highlights || [])
-    .map(({ image }) => image)
-    .filter((image) => !!image);
+    .map(({ image }) =>
+      image
+        ? {
+            ...image,
+            url: normalizeImageUrl(image.url) || "",
+            title: String(image.title ?? ""),
+            caption: String(image.caption ?? ""),
+            s3_key: image.s3_key ?? "",
+          }
+        : null,
+    )
+    .filter((image) => !!image) as {
+    url: string;
+    caption: string;
+    title: string;
+    s3_key: string;
+  }[];
 
   const [rowData, setRowData] = useState(
     (highlights || []).map(({ text, image }, id) => ({
       order: id,
       text: text,
-      image: image?.url || null,
-      imageCaption: image?.caption,
+      image: normalizeImageUrl(image?.url) || null,
+      imageCaption: String(image?.caption ?? ""),
     })),
   );
 
@@ -177,7 +217,7 @@ export default function HighlightsTable() {
               <MenuItem key={`${url}-${id}`} value={url}>
                 <Image
                   src={url}
-                  alt={caption}
+                  alt={caption || "image"}
                   width={120}
                   height={80}
                   priority
@@ -191,9 +231,81 @@ export default function HighlightsTable() {
     [errors.items, fields, imageList],
   );
 
+  const [jobId, setJobId] = useState("");
+  const [jobStatus, setJobStatus] = useState("");
+
+  const fetchJob = useCallback(async () => {
+    const payload = {
+      action: "job_status",
+      job_id: jobId,
+    };
+
+    let result;
+
+    if (!apiUrl) {
+      alert("Lambda API URL not configured. Set NEXT_PUBLIC_ELEVENLABS_API.");
+      return;
+    }
+
+    await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Request failed with ${response.status}`);
+        }
+
+        const data = await response.json();
+        result = data.body;
+      })
+      .catch((err) => {
+        console.error(err);
+        result = `Error sending URL: ${err.message || err}`;
+      });
+
+    return result;
+  }, [jobId]);
+
+  const fetchHighlights = useCallback(async () => {
+    setLoading(true);
+
+    const start = Date.now();
+    const intervalId = setInterval(async () => {
+      // Check if timeout reached
+      if (Date.now() - start >= 60000) {
+        console.log("Sorry, timeout.");
+        clearInterval(intervalId);
+        setLoading(false);
+        return;
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const job: any = await fetchJob();
+      console.log("job", job);
+
+      if (job.status === "completed") {
+        setJobStatus("completed");
+        setLoading(false);
+        clearInterval(intervalId);
+      }
+    }, 10000);
+  }, [fetchJob]);
+
   const router = useRouter();
 
-  const apiUrl = process.env.NEXT_PUBLIC_ELEVENLABS_API;
+  useEffect(() => {
+    if (!!jobId) {
+      if (jobStatus === "completed") {
+        router.push(`video/${jobId}`);
+      } else {
+        fetchHighlights();
+      }
+    }
+  }, [fetchHighlights, jobId, jobStatus, router]);
 
   const onSubmit = async (data: {
     items: (Omit<(typeof rowData)[0], "image" | "imageCaption"> & {
@@ -228,7 +340,7 @@ export default function HighlightsTable() {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ highlights: payload }),
+      body: JSON.stringify({ highlights: payload, async: true }),
     })
       .then(async (response) => {
         if (!response.ok) {
@@ -236,17 +348,17 @@ export default function HighlightsTable() {
         }
 
         const data = await response.json();
-        const videoId = data.body?.id;
-        if (!videoId) {
-          throw new Error(`Cannot get video id. Please try again later.`);
+        const jobId = data.body?.job_id;
+        if (!jobId) {
+          throw new Error(`No job id return. Please try again later.`);
         }
-        router.push(`video/${videoId}`);
+
+        setJobId(jobId);
+        setJobStatus("processing");
       })
       .catch((err) => {
         console.error(err);
         alert(`Error sending URL: ${err.message || err}`);
-      })
-      .finally(() => {
         setLoading(false);
       });
   };

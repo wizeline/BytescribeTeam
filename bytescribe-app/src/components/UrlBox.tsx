@@ -6,16 +6,15 @@ import {
   BoxProps,
   Button,
   CircularProgress,
+  LinearProgress,
   InputLabel,
   TextField,
   Typography,
   useTheme,
 } from "@mui/material";
 import { useRouter } from "next/navigation";
-import { useContext, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
-
-const MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0";
 
 export default function UrlBox(props: BoxProps) {
   const { control, handleSubmit } = useForm({
@@ -26,98 +25,237 @@ export default function UrlBox(props: BoxProps) {
   });
 
   const [loading, setLoading] = useState(false);
+  // Async job UI state
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<string | null>(null);
+  const [jobProgress, setJobProgress] = useState<string | null>(null);
+  const [polling, setPolling] = useState(false);
   const router = useRouter();
 
   const { setSummary } = useContext(ArticleSummaryContext);
 
-  const onSubmit = (data: { urlPath: string }) => {
+  const apiUrl = process.env.NEXT_PUBLIC_CRAWLER_API;
+  const mediaUrl = process.env.NEXT_PUBLIC_S3_BUCKET;
+
+  // checkJobStatus will be performed inside the polling effect to avoid
+  // creating a changing dependency for the effect.
+
+  const onSubmit = async (data: { urlPath: string }) => {
     const { urlPath } = data;
-    const payload = {
-      url: encodeURI(urlPath),
-      full: true,
-      model_id: MODEL_ID,
-      text_config: {
-        temperature: 0.7,
-        maxTokenCount: 2048,
-      },
-    };
-
-    const apiUrl = process.env.NEXT_PUBLIC_CRAWLER_API;
-    const mediaUrl = process.env.NEXT_PUBLIC_S3_BUCKET;
-
     if (!apiUrl) {
       alert("Lambda API URL not configured. Set NEXT_PUBLIC_CRAWLER_API.");
       return;
     }
 
     setLoading(true);
+    setJobId(null);
+    setJobStatus(null);
 
-    fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`Request failed with ${response.status}`);
-        }
+    const requestBody: Record<string, unknown> = {
+      url: encodeURI(urlPath),
+      full: true,
+      async: true, // always use async per request
+    };
 
-        const data = await response.json();
+    const getErrorMessage = (err: unknown) => {
+      if (typeof err === "string") return err;
+      if (err && typeof err === "object" && "message" in err)
+        return String((err as { message?: unknown }).message ?? "");
+      return String(err ?? "");
+    };
 
-        if (!data.summary.bullets.length) {
-          throw new Error(
-            `No data is return for this article. Try again later.`,
-          );
-        }
-
-        const highlights = [];
-        highlights.push({ text: data.title });
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (data.summary.bullets as any[]).map(
-          (bullet: { text: string; image_url: { image_url: string }[] }) => {
-            highlights.push({
-              text: bullet.text,
-              image: bullet.image_url[0]
-                ? {
-                    ...bullet.image_url[0],
-                    s3_key: bullet.image_url[0].image_url.replace(
-                      "s3://bytescribe-image-audio-bucket/",
-                      "",
-                    ),
-                    url: bullet.image_url[0].image_url.replace(
-                      "s3://bytescribe-image-audio-bucket",
-                      mediaUrl || "",
-                    ),
-                  }
-                : undefined,
-            });
-          },
-        );
-
-        setSummary({
-          title: data.title,
-          highlights: highlights,
-        });
-
-        router.push("adjust");
-      })
-      .catch((err) => {
-        console.error(err);
-        alert(`Error sending URL: ${err.message || err}`);
-      })
-      .finally(() => {
-        setLoading(false);
+    try {
+      const res = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
       });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(`HTTP ${res.status}: ${t}`);
+      }
+      const resp = await res.json();
+
+      // If async mode, backend may return job_id
+      if (resp && resp.job_id) {
+        setJobId(resp.job_id);
+        setJobStatus(
+          (resp as Record<string, unknown>).status
+            ? String((resp as Record<string, unknown>).status)
+            : "processing",
+        );
+        setJobProgress(
+          (resp as Record<string, unknown>).message
+            ? String((resp as Record<string, unknown>).message)
+            : null,
+        );
+        setPolling(true);
+      } else {
+        // if backend returned immediate result (unlikely in async flow), try to process it
+        const hasSummary =
+          resp &&
+          typeof resp === "object" &&
+          (resp as Record<string, unknown>).summary !== undefined;
+        if (!hasSummary) {
+          throw new Error(`No data returned for this article.`);
+        }
+        const respObj = resp as Record<string, unknown>;
+        // safe extraction of bullets
+        const bullets = Array.isArray(
+          respObj.summary &&
+            (respObj.summary as Record<string, unknown>).bullets,
+        )
+          ? ((respObj.summary as Record<string, unknown>).bullets as Array<
+              Record<string, unknown>
+            >)
+          : [];
+        const highlights: {
+          text: string;
+          image?: {
+            url: string;
+            s3_key: string;
+            title: string;
+            caption: string;
+          };
+        }[] = [];
+        highlights.push({ text: String(respObj.title || "") });
+        bullets.forEach((bullet) => {
+          const text = bullet.text ? String(bullet.text) : "";
+          const imageArr = Array.isArray(bullet.image_url)
+            ? (bullet.image_url as Array<Record<string, unknown>>)
+            : undefined;
+          const firstImg = imageArr && imageArr[0] ? imageArr[0] : undefined;
+          const image =
+            firstImg && firstImg.image_url
+              ? {
+                  url: String(firstImg.image_url),
+                  s3_key: String(firstImg.image_url).replace(
+                    "s3://bytescribe-image-audio-bucket/",
+                    "",
+                  ),
+                  title: String(firstImg.title ?? ""),
+                  caption: String(firstImg.caption ?? ""),
+                }
+              : undefined;
+          highlights.push({ text, image });
+        });
+        setSummary({ title: String(respObj.title || ""), highlights });
+        router.push("adjust");
+      }
+    } catch (err: unknown) {
+      console.error(err);
+      alert(`Error sending URL: ${getErrorMessage(err)}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const { palette } = useTheme();
 
+  // Polling effect for async jobs — keeps check logic local so the effect
+  // dependencies don't change on every render.
+  useEffect(() => {
+    if (!polling || !jobId) return;
+    let mounted = true;
+    const fetchStatus = async (id: string) => {
+      if (!apiUrl) return null;
+      try {
+        const res = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "job_status", job_id: id }),
+        });
+        if (!res.ok) {
+          const t = await res.text();
+          throw new Error(`HTTP ${res.status}: ${t}`);
+        }
+        return await res.json();
+      } catch (err) {
+        console.error("Error checking job status", err);
+        return null;
+      }
+    };
+
+    const interval = setInterval(async () => {
+      const status = await fetchStatus(String(jobId));
+      if (!mounted || !status) return;
+      setJobStatus(status.status || null);
+      setJobProgress(
+        (status.progress as string) || (status.message as string) || null,
+      );
+      if (status.status === "completed") {
+        setPolling(false);
+        setJobId(null);
+        // job may include result under 'result' or 'summary' or full body
+        const respObj = (status.result ?? status) as Record<string, unknown>;
+        const bullets = Array.isArray(
+          respObj.summary &&
+            (respObj.summary as Record<string, unknown>).bullets,
+        )
+          ? ((respObj.summary as Record<string, unknown>).bullets as Array<
+              Record<string, unknown>
+            >)
+          : [];
+        if (bullets.length) {
+          const highlights: {
+            text: string;
+            image?: {
+              url: string;
+              s3_key: string;
+              title: string;
+              caption: string;
+            };
+          }[] = [];
+          highlights.push({ text: String(respObj.title || "") });
+          bullets.forEach((bullet) => {
+            const text = bullet.text ? String(bullet.text) : "";
+            const imageArr = Array.isArray(bullet.image_url)
+              ? (bullet.image_url as Array<Record<string, unknown>>)
+              : undefined;
+            const firstImg = imageArr && imageArr[0] ? imageArr[0] : undefined;
+            const image =
+              firstImg && firstImg.image_url
+                ? {
+                    url: String(firstImg.image_url),
+                    s3_key: String(firstImg.image_url).replace(
+                      "s3://bytescribe-image-audio-bucket/",
+                      "",
+                    ),
+                    title: String(firstImg.title ?? ""),
+                    caption: String(firstImg.caption ?? ""),
+                  }
+                : undefined;
+            highlights.push({ text, image });
+          });
+          setSummary({ title: String(respObj.title || ""), highlights });
+          router.push("adjust");
+        } else if ((status as Record<string, unknown>).summary) {
+          setSummary({
+            title: String(
+              (status as Record<string, unknown>).title || "Result",
+            ),
+            highlights: [],
+          });
+          router.push("adjust");
+        } else {
+          alert("Job completed but no result available.");
+        }
+      } else if (status.status === "failed") {
+        setPolling(false);
+        setJobId(null);
+        alert((status as Record<string, unknown>).error || "Job failed");
+      }
+    }, 3000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [polling, jobId, apiUrl, mediaUrl, router, setSummary]);
+
   return (
     <>
       <form onSubmit={handleSubmit(onSubmit)}>
+        {(loading || polling) && <LinearProgress />}
         <Box
           display={"flex"}
           flexDirection={"column"}
@@ -147,6 +285,7 @@ export default function UrlBox(props: BoxProps) {
                     fullWidth
                     {...field}
                     required
+                    disabled={loading || polling}
                     error={!!fieldState.error}
                     helperText={
                       fieldState.error &&
@@ -169,20 +308,66 @@ export default function UrlBox(props: BoxProps) {
           <Button
             variant="contained"
             type="submit"
-            disabled={loading}
+            disabled={loading || polling}
             sx={{ alignSelf: "end" }}
           >
-            Go
+            {loading || polling ? (
+              <>
+                <CircularProgress size={16} color="inherit" sx={{ mr: 1 }} />
+                Crawling…
+              </>
+            ) : (
+              "Go"
+            )}
           </Button>
+          {/* (async submission only) */}
         </Box>
       </form>
+      {/* Job status panel for async mode */}
+      {(polling || jobStatus) && (
+        <Box mt={2} p={1} sx={{ border: "1px solid #ddd", borderRadius: 1 }}>
+          <Typography variant="subtitle2">Job Status</Typography>
+          <Box fontSize={13} mt={1}>
+            <div>
+              <strong>Job ID:</strong> {jobId || "(no active job)"}
+            </div>
+            <div>
+              <strong>Status:</strong> {jobStatus || "-"}
+            </div>
+            {jobProgress && (
+              <div style={{ marginTop: 6 }}>
+                <strong>Progress:</strong> {jobProgress}
+              </div>
+            )}
+            {polling && (
+              <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
+                Polling for updates…
+              </div>
+            )}
+          </Box>
+        </Box>
+      )}
       <Backdrop
-        open={loading}
+        open={loading || polling}
         sx={palette.mode === "dark" ? { bgcolor: "rgba(0, 0, 0, 0.9)" } : {}}
       >
-        <Box display={"flex"} gap={2} alignItems={"center"}>
-          <CircularProgress color="inherit" />
-          <Typography variant="h6">Crawling data...</Typography>
+        <Box
+          display={"flex"}
+          flexDirection={"column"}
+          gap={2}
+          alignItems={"center"}
+        >
+          <Box display={"flex"} gap={2} alignItems={"center"}>
+            <CircularProgress color="inherit" />
+            <Typography variant="h6">
+              {polling ? "Generating Highlights..." : "Reading your link..."}
+            </Typography>
+          </Box>
+          {jobProgress && (
+            <Typography variant="body2" sx={{ opacity: 0.9 }}>
+              {jobProgress}
+            </Typography>
+          )}
         </Box>
       </Backdrop>
     </>
