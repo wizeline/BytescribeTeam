@@ -813,7 +813,7 @@ export default function HighlightsTable() {
               Go Back
             </Button>
             {!!highlights?.length && (
-              <Button variant="contained" type="submit" disabled={loading}>
+              <Button variant="contained" onClick={() => router.push("video")} disabled={loading}>
                 Continue
               </Button>
             )}

@@ -19,7 +19,7 @@ export default function VideoPlayer({ id }: { id: string }) {
   const objectUrl = `${mediaUrl}/output_videos/${id}.mp4`;
 
   const [available, setAvailable] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
 
   const checkAvailability = useCallback(async () => {
