@@ -23,7 +23,7 @@ import {
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import * as yup from "yup";
 import { yupResolver } from "@hookform/resolvers/yup";
-import { useContext, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { ArticleSummaryContext } from "@/contexts/ArticleSummary";
 import { useRouter } from "next/navigation";
 
@@ -516,7 +516,7 @@ export default function HighlightsTable() {
       router.push("video");
     }
     setLoading(false);
-  }
+  };
 
   const { palette } = useTheme();
 
