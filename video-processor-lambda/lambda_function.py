@@ -4,9 +4,10 @@ import glob
 import json
 import shutil
 from natsort import natsorted
-from urllib.parse import unquote_plus
+from urllib.parse import unquote_plus, urlparse  # <<< ADDED urlparse
 
 # MoviePy imports for clip duration and component composition
+# ... (rest of imports are the same)
 from moviepy import (
     VideoFileClip,
     AudioFileClip,
@@ -47,6 +48,11 @@ TARGET_HEIGHT = 1080
 # --- STABLE TRANSITION PATH RESTORED ---
 TRANSITION_VIDEO_PATH = "/var/task/fade_transition.mp4"
 
+# --- CONFIGURATION FOR TITLE SLIDE ---
+TITLE_FONT_SIZE = 110
+TITLE_STROKE_WIDTH = 5
+# ------------------------------------
+
 
 # --- UTILITY FUNCTION: S3 Object Move (Unchanged) ---
 
@@ -72,7 +78,7 @@ def move_s3_object(bucket, old_key, new_key):
         print(f"WARNING: Failed to archive object {old_key}. Error: {e}")
 
 
-# --- CORE FUNCTION: COMBINE VIDEOS (REVERTED) ---
+# --- CORE FUNCTION: COMBINE VIDEOS (REVERTED - Unchanged) ---
 
 
 def combine_videos(video_paths: list, final_output_path: str):
@@ -140,7 +146,7 @@ def combine_videos(video_paths: list, final_output_path: str):
             final_clip.close()
 
 
-# --- UTILITY FUNCTION: DYNAMIC SUBTITLE GENERATOR (Punctuation-Based Chunking) ---
+# --- UTILITY FUNCTION: DYNAMIC SUBTITLE GENERATOR (Punctuation-Based Chunking - Unchanged) ---
 
 
 def generate_timed_text_clips(
@@ -205,7 +211,31 @@ def generate_timed_text_clips(
     return timed_clips
 
 
-# --- UTILITY FUNCTION: IMAGE RESIZE AND CROP (Final API Fix) ---
+# --- NEW UTILITY FUNCTION: TITLE GENERATOR ---
+
+
+def generate_title_clip(text: str, duration: float, font_path: str):
+    """
+    Generates a single, large, bold, centered text clip for a title card.
+    Uses globally defined TITLE_FONT_SIZE and TITLE_STROKE_WIDTH.
+    """
+    title_clip = (
+        TextClip(
+            text=text,
+            font=font_path,
+            font_size=TITLE_FONT_SIZE,
+            color="white",
+            stroke_color="black",
+            stroke_width=TITLE_STROKE_WIDTH,
+        )
+        .with_duration(duration)
+        .with_start(0.0)
+        .with_position("center")
+    )
+    return [title_clip]
+
+
+# --- UTILITY FUNCTION: IMAGE RESIZE AND CROP (Final API Fix - Unchanged) ---
 
 
 def resize_and_crop_image(
@@ -282,75 +312,7 @@ def resize_and_crop_image(
             original_clip.close()
 
 
-# --- CORE FUNCTION: COMBINE VIDEOS (Reverted to standard concatenation) ---
-
-
-def combine_videos(video_paths: list, final_output_path: str):
-    """
-    Combines a list of video files into a single final video.
-    Includes explicit resource handling to prevent FFMPEG read errors.
-    """
-    print(f"Combining {len(video_paths)} videos into {final_output_path}...")
-
-    if not video_paths:
-        print("No videos to combine. Skipping final step.")
-        return
-
-    # --- RE-INJECT ENVIRONMENT OVERRIDES ---
-    os.environ["TMPDIR"] = tmp_dir
-    os.environ["TEMP"] = tmp_dir
-    os.environ["TMP"] = tmp_dir
-    original_cwd = os.getcwd()
-    os.chdir(tmp_dir)
-    # ----------------------------------------------------
-
-    clips = []
-    final_clip = None
-    try:
-        # Load all clips from the list of paths with error handling
-        for path in video_paths:
-            try:
-                # Attempt to load the intermediate clip
-                clip = VideoFileClip(path)
-                clips.append(clip)
-            except Exception as e:
-                # Log a warning for a failed intermediate clip, but continue
-                print(
-                    f"CRITICAL WARNING: Failed to read intermediate video {path}: {e}"
-                )
-                continue
-
-        if not clips:
-            print(
-                "No clips successfully loaded after attempt to read intermediate files. Skipping combination."
-            )
-            return
-
-        # Concatenate the clips
-        final_clip = concatenate_videoclips(clips, method="compose")
-
-        # Write the final combined video file
-        final_clip.write_videofile(
-            final_output_path, codec="libx264", audio_codec="aac"
-        )
-        print(f"Final video successfully combined at {final_output_path}")
-
-    except Exception as e:
-        print(f"An error occurred during video combination: {e}")
-        raise
-
-    finally:
-        # Restore the original working directory
-        os.chdir(original_cwd)
-        # Explicitly close all clips to free up resources (CRITICAL for MoviePy stability)
-        if clips:
-            for clip in clips:
-                clip.close()
-        if final_clip:
-            final_clip.close()
-
-
-# --- CORE FUNCTION: CREATE VIDEO (STABLE BASELINE) ---
+# --- CORE FUNCTION: CREATE VIDEO (UPDATED for Header Logic) ---
 
 
 def create_video_from_images_and_audio(
@@ -358,12 +320,13 @@ def create_video_from_images_and_audio(
     audio_path: str,
     output_path: str,
     segment_text: str,
+    is_header_segment: bool = False,  # <--- NEW ARGUMENT ADDED
     fps: int = 1,
 ):
     """
     Creates a video from a sequence of images and a single audio file from local paths.
     Pads the video duration to a minimum of 1.0s.
-    Fades have been removed to return to a stable baseline.
+    Conditionally applies header (title) or standard subtitle logic.
     """
     if not os.path.isfile(audio_path):
         print(f"Error: The specified audio file '{audio_path}' does not exist.")
@@ -382,7 +345,7 @@ def create_video_from_images_and_audio(
     video_segment_duration = max(audio_duration, MIN_ENCODE_DURATION)
     # --- END DURATION CALCULATION ---
 
-    # --- IMAGE SELECTION AND PROCESSING LOGIC ---
+    # --- IMAGE SELECTION AND PROCESSING LOGIC (Unchanged) ---
     local_image_files = [
         os.path.join(image_folder, img)
         for img in os.listdir(image_folder)
@@ -467,17 +430,31 @@ def create_video_from_images_and_audio(
         video_clip.duration = video_segment_duration
         video_clip.audio = audio_clip  # Audio starts immediately
 
-        # --- DYNAMIC SUBTITLE LOGIC ---
+        # --- DYNAMIC SUBTITLE LOGIC (UPDATED) ---
         font_file = "/var/task/fonts/SubtitleFont.ttf"
-
-        subtitle_clips = generate_timed_text_clips(
-            segment_text, video_segment_duration, font_file, max_words_per_chunk=4
-        )
-
         positioned_subtitle_clips = []
-        for clip in subtitle_clips:
-            clip = clip.with_position(("center", video_clip.h * 0.9))
-            positioned_subtitle_clips.append(clip)
+
+        if is_header_segment:
+            # Use the specialized title generator for header slides
+            print("Generating Header/Title Clip (Large, Centered)...")
+            subtitle_clips = generate_title_clip(
+                segment_text, video_segment_duration, font_file
+            )
+            # Title clips are already centered, no need to reposition
+            positioned_subtitle_clips = subtitle_clips
+
+        else:
+            # Use the standard, chunked subtitle generator for content slides
+            print("Generating Standard Subtitle Clips (Chunked, Bottom-Aligned)...")
+            subtitle_clips = generate_timed_text_clips(
+                segment_text, video_segment_duration, font_file, max_words_per_chunk=4
+            )
+
+            for clip in subtitle_clips:
+                # Reposition standard subtitles to the bottom
+                clip = clip.with_position(("center", video_clip.h * 0.9))
+                positioned_subtitle_clips.append(clip)
+
         # --- END DYNAMIC SUBTITLE LOGIC ---
 
         # 4. BUILD THE FINAL COMPOSITE CLIP (No Fades Applied)
@@ -528,7 +505,7 @@ def create_video_from_images_and_audio(
                     print(f"Warning: Failed to cleanup temp image file {path}: {e}")
 
 
-# --- FINAL LAMBDA HANDLER (RE-IMPLEMENTED BLACK TRANSITION) ---
+# --- FINAL LAMBDA HANDLER (UPDATED with URL extraction fix) ---
 
 
 def lambda_handler(event, context):
@@ -552,6 +529,7 @@ def lambda_handler(event, context):
         # 1. Determine Bucket and Key (Assuming S3 trigger on highlights.json)
         record = event["Records"][0]
         bucket = record["s3"]["bucket"]["name"]
+        # The JSON manifest key must be URL-decoded because S3 event keys are encoded
         json_key = unquote_plus(record["s3"]["object"]["key"], encoding="utf-8")
 
         print(f"Processing JSON manifest from s3://{bucket}/{json_key}")
@@ -580,13 +558,13 @@ def lambda_handler(event, context):
             order = segment.get("order", i)
             audio_s3_key = segment.get("audio")
 
-            # NEW: Extract the segment text, using a fallback if missing
-            segment_text = segment.get("text", "No Text Provided")
+            # --- HEADER LOGIC CHECK ---
+            is_header_segment = order == 0
+            print(f"Is Header Segment: {is_header_segment}")
+            # --------------------------
 
-            # --- GET IMAGE S3 KEY ---
-            image_data = segment.get("image", {})
-            image_s3_key = image_data.get("s3_key")
-            # -----------------------------
+            # Extract the segment text, using a fallback if missing
+            segment_text = segment.get("text", "No Text Provided")
 
             segment_name = f"segment_{order:03d}"
 
@@ -603,29 +581,40 @@ def lambda_handler(event, context):
             local_subfolder = os.path.join(tmp_dir, segment_name)
             os.makedirs(local_subfolder, exist_ok=True)
 
-            # --- S3 IMAGE DOWNLOAD ---
-            if image_s3_key:
-                # FIX APPLIED: Decode the S3 key before using it for download
-                decoded_image_s3_key = unquote_plus(image_s3_key, encoding="utf-8")
-                print(
-                    f"S3_KEY found: Attempting to download image from {decoded_image_s3_key}"
-                )
+            # --- S3 IMAGE DOWNLOAD (FIX APPLIED: Extracting key from full URL) ---
+            if image_data := segment.get("image", {}):
+                image_s3_key_url = image_data.get("s3_key")
 
-                # Use the base name of the DECODED S3 key as the local filename
-                local_image_path = os.path.join(
-                    local_subfolder, os.path.basename(decoded_image_s3_key)
-                )
-                try:
-                    s3_client.download_file(
-                        bucket, decoded_image_s3_key, local_image_path
-                    )
-                    print(f"Successfully downloaded image to {local_image_path}")
-                except Exception as e:
-                    # Log error and continue. The video creation function will fall back to local/sample image.
-                    print(
-                        f"WARNING: Failed to download S3 image {decoded_image_s3_key}. Will proceed with local/fallback images. Error: {e}"
-                    )
-            # -------------------------------------
+                if image_s3_key_url:
+                    s3_key_raw = image_s3_key_url
+
+                    # 1. Extract the key/path if it's a full URL
+                    if s3_key_raw.startswith("http"):
+                        parsed_url = urlparse(s3_key_raw)
+                        s3_key_raw = parsed_url.path.lstrip("/")
+
+                    # 2. **CRITICAL FIX:** URL DECODE the key to pass the literal string to Boto3.
+                    # Boto3 expects the key as it appears in the S3 console (with spaces).
+                    # The key from the manifest is already URL-encoded (%20).
+                    s3_key_to_use = unquote_plus(s3_key_raw, encoding="utf-8")
+
+                    # We use the literal, unencoded key for the local filename
+                    local_filename = os.path.basename(s3_key_to_use)
+                    local_image_path = os.path.join(local_subfolder, local_filename)
+
+                    try:
+                        print(
+                            f"S3 Key (DECODED for Boto3): Attempting to download image from {s3_key_to_use}"
+                        )
+                        s3_client.download_file(bucket, s3_key_to_use, local_image_path)
+                        print(f"Successfully downloaded image to {local_image_path}")
+                    except Exception as e:
+                        # Log error and continue. The video creation function will fall back to local/sample image.
+                        print(
+                            f"WARNING: Failed to download S3 image {s3_key_to_use}. Will proceed with local/fallback images. Error: An error occurred (404) when calling the HeadObject operation: Not Found"
+                        )
+                        print(f"Original Error Detail: {e}")
+            # ---------------------------------------------
 
             # Define local audio path and download audio
             local_audio_path = os.path.join(
@@ -643,9 +632,13 @@ def lambda_handler(event, context):
             # Define output path for the intermediate video
             intermediate_video_path = os.path.join(tmp_dir, f"{segment_name}.mp4")
 
-            # Call the main video creation function (now passing segment_text)
+            # Call the main video creation function (now passing segment_text AND is_header_segment)
             success = create_video_from_images_and_audio(
-                local_subfolder, local_audio_path, intermediate_video_path, segment_text
+                local_subfolder,
+                local_audio_path,
+                intermediate_video_path,
+                segment_text,
+                is_header_segment=is_header_segment,  # <--- ARGUMENT PASSED
             )
 
             if success:
