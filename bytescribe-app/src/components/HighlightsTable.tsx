@@ -71,6 +71,14 @@ export default function HighlightsTable() {
   const { summary, setSummary } = useContext(ArticleSummaryContext);
   const { highlights } = summary;
 
+  // Prevent rendering until after client hydration to avoid
+  // server/client markup mismatches when this component depends
+  // on client-only context or environment values.
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   // Accordion states for collapsing sections
   const [configExpanded, setConfigExpanded] = useState(true);
   const [highlightsExpanded, setHighlightsExpanded] = useState(true);
@@ -148,8 +156,8 @@ export default function HighlightsTable() {
   const [modelId, setModelId] = useState(
     "anthropic.claude-3-5-sonnet-20240620-v1:0",
   );
-  const [temperatureValue, setTemperatureValue] = useState<number>(0.7);
-  const [wordsPerHighlight, setWordsPerHighlight] = useState<number>(30);
+  const [temperatureValue, setTemperatureValue] = useState<number>(0.2);
+  const [wordsPerHighlight, setWordsPerHighlight] = useState<number>(60);
 
   const {
     control,
@@ -368,6 +376,7 @@ export default function HighlightsTable() {
       payload.text_config = {
         temperature: Number(temperatureValue),
         maxTokenCount: 2048, // Default token count
+        max_words_per_bullet: Number(wordsPerHighlight) || 60,
       };
 
       const res = await fetch(crawlerApiUrl, {
@@ -637,6 +646,8 @@ export default function HighlightsTable() {
 
   const { palette } = useTheme();
 
+  if (!isMounted) return null;
+
   return (
     <>
       <form onSubmit={handleSubmit(onSubmit)}>
@@ -647,7 +658,9 @@ export default function HighlightsTable() {
             onChange={() => setConfigExpanded((s) => !s)}
           >
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="subtitle1">Configuration</Typography>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                Configuration
+              </Typography>
             </AccordionSummary>
             <AccordionDetails>
               <Paper elevation={1} sx={{ padding: 2 }}>
@@ -743,7 +756,9 @@ export default function HighlightsTable() {
               onChange={() => setHighlightsExpanded((s) => !s)}
             >
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Typography variant="subtitle1">Highlights</Typography>
+                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                  Highlights
+                </Typography>
               </AccordionSummary>
               <AccordionDetails>
                 <Paper elevation={1} sx={{ padding: 2, mb: 2 }}>
