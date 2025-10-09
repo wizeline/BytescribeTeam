@@ -242,71 +242,83 @@ def resize_and_crop_image(
     image_path: str, target_width: int, target_height: int, output_path: str = None
 ) -> str:
     """
-    Resizes and center-crops an image to the target resolution (e.g., 1920x1080).
+    FIXED: Resizes the image to FIT (Letterbox/Pillarbox) within the target resolution
+    to preserve all content (no cropping). The final output file is the exact target size.
     """
     original_clip = None
-    # Use the provided output_path or default to overwriting the input image
     final_output_path = output_path if output_path else image_path
+
+    # Ensure output is PNG for quality and to avoid issues with saving composite frames
+    if not final_output_path.lower().endswith(".png"):
+        final_output_path = final_output_path.rsplit(".", 1)[0] + ".png"
 
     try:
         original_clip = ImageClip(image_path)
         width, height = original_clip.size
-        target_ratio = target_width / target_height
-        current_ratio = width / height
-        cropped_clip = original_clip  # Initialize cropped_clip
 
-        # --- Start Image Processing ---
         print(
-            f"Processing image: {os.path.basename(image_path)}. Original size: {width}x{height}. Target: {target_width}x{target_height}"
+            f"Processing image: {os.path.basename(image_path)}. Original size: {width}x{height}. Target: {target_width}x{target_height}. MODE: FIT/PAD."
         )
 
-        # 1. Cropping Logic
-        if abs(current_ratio - target_ratio) < 0.01:
-            # Check for near target ratio - no crop needed
-            print("Image is already near target ratio. No crop needed.")
-        elif current_ratio > target_ratio:
-            # Image is wider. Crop width to match target height.
-            new_width = int(height * target_ratio)
-            x_offset = (width - new_width) // 2
+        # 1. Calculate the scaling factor to FIT the image entirely within the target frame
+        scale_factor = min(target_width / width, target_height / height)
 
-            # --- Use .cropped(x1, x2) ---
-            cropped_clip = original_clip.cropped(
-                x1=x_offset, x2=x_offset + new_width, y1=0, y2=height
-            )
-            print(f"Cropping width from {width} to {new_width}.")
-        else:
-            # Image is taller. Crop height to match target width.
-            new_height = int(width / target_ratio)
-            y_offset = (height - new_height) // 2
+        new_width = int(width * scale_factor)
+        new_height = int(height * scale_factor)
 
-            # --- Use .cropped(y1, y2) ---
-            cropped_clip = original_clip.cropped(
-                y1=y_offset, y2=y_offset + new_height, x1=0, x2=width
-            )
-            print(f"Cropping height from {height} to {new_height}.")
+        # 2. Resize the image clip only
+        resized_clip = original_clip.resized(width=new_width, height=new_height)
 
-        # 2. Resize to exact target dimensions
-        # --- Use .resized(width, height) ---
-        resized_clip = cropped_clip.resized(width=target_width, height=target_height)
+        # 3. Create a black background clip (the canvas) at the final target size
+        # Must give it a non-zero duration to make it composable
+        background_clip = ColorClip(
+            size=(target_width, target_height),
+            color=[0, 0, 0],  # Solid black for padding
+            duration=0.01,
+        )
 
-        # 3. Save the resized image (Overwrites the original/copied file)
-        if final_output_path.lower().endswith((".jpg", ".jpeg")):
-            resized_clip.save_frame(final_output_path)
-        else:
-            # Default to PNG
-            final_output_path = final_output_path.rsplit(".", 1)[0] + ".png"
-            resized_clip.save_frame(final_output_path)
+        # 4. Calculate offsets for centering
+        x_offset = (target_width - new_width) // 2
+        y_offset = (target_height - new_height) // 2
 
-        print(f"Successfully resized and saved to {final_output_path}")
+        # 5. Composite the resized image onto the center of the black background
+        # We ensure the duration matches for the save_frame method below
+        final_clip_composite = CompositeVideoClip(
+            [
+                background_clip,
+                resized_clip.with_position((x_offset, y_offset)).with_duration(0.01),
+            ],
+            size=(target_width, target_height),
+        )
+
+        # 6. Save the frame of the composite clip as the final image file
+        final_clip_composite.save_frame(
+            final_output_path, t=0
+        )  # t=0 ensures we grab the first frame
+
+        print(
+            f"Successfully padded and saved (Fit mode) to {final_output_path} (Padded image size: {new_width}x{new_height})"
+        )
         return final_output_path
 
     except Exception as e:
-        print(f"WARNING: Image processing failed for {image_path}. Error: {e}")
+        print(f"FATAL WARNING: Image processing failed for {image_path}. Error: {e}")
+        # Log the failure but return the original path so the video creation *might* still proceed with an un-processed image.
         return image_path
 
     finally:
+        # Explicitly close all clips to free up memory (CRITICAL)
         if original_clip:
             original_clip.close()
+        try:
+            if "background_clip" in locals():
+                background_clip.close()
+            if "resized_clip" in locals():
+                resized_clip.close()
+            if "final_clip_composite" in locals():
+                final_clip_composite.close()
+        except Exception:
+            pass
 
 
 # --- CORE FUNCTION: CREATE VIDEO (UPDATED Signature and FIX) ---
