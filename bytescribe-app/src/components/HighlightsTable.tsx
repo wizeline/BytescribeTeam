@@ -122,7 +122,10 @@ export default function HighlightsTable() {
 
   const [loading, setLoading] = useState(false);
   // UI controls for generating highlights
-  const [modelId, setModelId] = useState("");
+  // Default to the 3.5 Sonnet model so it's selected by default
+  const [modelId, setModelId] = useState(
+    "anthropic.claude-3-5-sonnet-20240620-v1:0",
+  );
   const [temperatureValue, setTemperatureValue] = useState<number>(0.7);
   const [wordsPerHighlight, setWordsPerHighlight] = useState<number>(30);
 
@@ -604,7 +607,17 @@ export default function HighlightsTable() {
         <Box display={"flex"} flexDirection={"column"} gap={3} marginBottom={5}>
           {/* --- Controls: Model / Temperature / Number of Words per Highlight --- */}
           <Paper elevation={1} sx={{ padding: 2 }}>
-            <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
+            {/* Controls row: force single-line layout. On very small screens allow horizontal scroll */}
+            <Box
+              display="flex"
+              gap={2}
+              alignItems="center"
+              sx={{
+                flexWrap: "nowrap",
+                overflowX: { xs: "auto", sm: "visible" },
+                justifyContent: "space-between",
+              }}
+            >
               <Box sx={{ minWidth: 240 }}>
                 <Typography variant="body2" sx={{ mb: 1 }}>
                   Model:
@@ -653,16 +666,26 @@ export default function HighlightsTable() {
                   }
                 />
               </Box>
+            </Box>
 
-              <Box sx={{ ml: "auto" }}>
-                <Button
-                  variant="outlined"
-                  onClick={generateHighlights}
-                  disabled={loading}
-                >
-                  Generate
-                </Button>
-              </Box>
+            {/* Generate button placed on its own full-width row, centered for clarity */}
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "center",
+                mt: 2,
+                width: "100%",
+                flexBasis: "100%",
+              }}
+            >
+              <Button
+                variant="contained"
+                onClick={generateHighlights}
+                disabled={loading}
+                sx={{ width: { xs: "90%", sm: "auto" } }}
+              >
+                Generate
+              </Button>
             </Box>
           </Paper>
 
