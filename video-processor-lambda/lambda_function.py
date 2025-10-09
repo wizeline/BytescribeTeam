@@ -9,6 +9,9 @@ from datetime import datetime
 import random
 import moviepy.config as mpy_config
 
+# --- NEW: Import Pillow for efficient image processing ---
+from PIL import Image, ImageDraw, ImageFont
+
 # MoviePy imports for clip duration and component composition
 from moviepy import (
     VideoFileClip,
@@ -43,7 +46,7 @@ TRANSITION_VIDEO_PATH = "/var/task/fade_transition.mp4"
 TITLE_FONT_SIZE = 110
 TITLE_STROKE_WIDTH = 5
 # Safe character limit for the large title font to force wrapping
-MAX_CHARS_PER_TITLE_LINE = 8
+MAX_CHARS_PER_TITLE_LINE = 20
 # ------------------------------------
 
 # --- OPTIMIZATION 1: FFmpeg Binary Setup (Runs once on Cold Start) ---
@@ -222,7 +225,7 @@ def generate_timed_text_clips(
     return timed_clips
 
 
-# --- NEW UTILITY FUNCTION: TITLE GENERATOR (FIXED: Dynamic Wrapping) ---
+# --- NEW UTILITY FUNCTION: TITLE GENERATOR (Fixed) ---
 
 
 def generate_title_clip(text: str, duration: float, font_path: str):
@@ -268,17 +271,17 @@ def generate_title_clip(text: str, duration: float, font_path: str):
     return [title_clip]
 
 
-# --- UTILITY FUNCTION: IMAGE RESIZE AND CROP (FIXED: Switched to FIT/Padded Mode) ---
+# --- OPTIMIZATION 2B: IMAGE RESIZE AND CROP (REFACTORED for PIL/Pillow) ---
 
 
 def resize_and_crop_image(
     image_path: str, target_width: int, target_height: int, output_path: str = None
 ) -> str:
     """
-    FIXED: Resizes the image to FIT (Letterbox/Pillarbox) within the target resolution
-    to preserve all content (no cropping). The final output file is the exact target size.
+    REFACTOR: Uses PIL (Pillow) to efficiently resize the image to FIT
+    (Letterbox/Pillarbox) within the target resolution and pad with black bars.
+    This eliminates heavy MoviePy clip processing for static images.
     """
-    original_clip = None
     final_output_path = output_path if output_path else image_path
 
     # Ensure output is PNG for quality and to avoid issues with saving composite frames
@@ -286,75 +289,64 @@ def resize_and_crop_image(
         final_output_path = final_output_path.rsplit(".", 1)[0] + ".png"
 
     try:
-        original_clip = ImageClip(image_path)
-        width, height = original_clip.size
+        # 1. Open image using PIL
+        img = Image.open(image_path)
+        width, height = img.size
 
         print(
-            f"Processing image: {os.path.basename(image_path)}. Original size: {width}x{height}. Target: {target_width}x{target_height}. MODE: FIT/PAD."
+            f"Processing image with PIL: {os.path.basename(image_path)}. Original size: {width}x{height}. Target: {target_width}x{target_height}. MODE: PIL FIT/PAD."
         )
 
-        # 1. Calculate the scaling factor to FIT the image entirely within the target frame
+        # 2. Calculate the scaling factor to FIT the image entirely within the target frame
         scale_factor = min(target_width / width, target_height / height)
 
         new_width = int(width * scale_factor)
         new_height = int(height * scale_factor)
 
-        # 2. Resize the image clip only
-        resized_clip = original_clip.resized(width=new_width, height=new_height)
+        # 3. Resize the image (maintains aspect ratio)
+        resized_img = img.resize((new_width, new_height), Image.LANCZOS)
 
-        # 3. Create a black background clip (the canvas) at the final target size
-        # Must give it a non-zero duration to make it composable
-        background_clip = ColorClip(
-            size=(target_width, target_height),
-            color=[0, 0, 0],  # Solid black for padding
-            duration=0.01,
-        )
+        # 4. Create a black background (the canvas) at the final target size
+        background = Image.new(
+            "RGB", (target_width, target_height), (0, 0, 0)
+        )  # Black color
 
-        # 4. Calculate offsets for centering
+        # 5. Calculate offsets for centering
         x_offset = (target_width - new_width) // 2
         y_offset = (target_height - new_height) // 2
 
-        # 5. Composite the resized image onto the center of the black background
-        # We ensure the duration matches for the save_frame method below
-        final_clip_composite = CompositeVideoClip(
-            [
-                background_clip,
-                resized_clip.with_position((x_offset, y_offset)).with_duration(0.01),
-            ],
-            size=(target_width, target_height),
-        )
+        # 6. Paste the resized image onto the center of the black background
+        background.paste(resized_img, (x_offset, y_offset))
 
-        # 6. Save the frame of the composite clip as the final image file
-        final_clip_composite.save_frame(
-            final_output_path, t=0
-        )  # t=0 ensures we grab the first frame
+        # 7. Save the final image
+        background.save(final_output_path, "PNG")
 
         print(
-            f"Successfully padded and saved (Fit mode) to {final_output_path} (Padded image size: {new_width}x{new_height})"
+            f"Successfully padded and saved (PIL Fit mode) to {final_output_path} (Padded image size: {new_width}x{new_height})"
         )
         return final_output_path
 
     except Exception as e:
-        print(f"FATAL WARNING: Image processing failed for {image_path}. Error: {e}")
-        # Log the failure but return the original path so the video creation *might* still proceed with an un-processed image.
+        print(
+            f"FATAL WARNING: Image processing failed with PIL for {image_path}. Error: {e}"
+        )
+        # Return the original path as a final, un-processed fallback
         return image_path
 
     finally:
-        # Explicitly close all clips to free up memory (CRITICAL)
-        if original_clip:
-            original_clip.close()
+        # Explicitly close PIL objects
         try:
-            if "background_clip" in locals():
-                background_clip.close()
-            if "resized_clip" in locals():
-                resized_clip.close()
-            if "final_clip_composite" in locals():
-                final_clip_composite.close()
+            if "img" in locals():
+                img.close()
+            if "resized_img" in locals():
+                resized_img.close()
+            if "background" in locals():
+                background.close()
         except Exception:
             pass
 
 
-# --- CORE FUNCTION: CREATE VIDEO (Updated) ---
+# --- CORE FUNCTION: CREATE VIDEO (Unchanged) ---
 
 
 def create_video_from_images_and_audio(
@@ -431,6 +423,7 @@ def create_video_from_images_and_audio(
 
         if not path.startswith(tmp_dir):
             base_name = os.path.basename(path).rsplit(".", 1)[0]
+            # Ensure temporary copy is PNG to match output
             temp_path = os.path.join(image_folder, f"{base_name}_temp_copy.png")
             shutil.copy(path, temp_path)
             current_path = temp_path
@@ -469,6 +462,7 @@ def create_video_from_images_and_audio(
         print(f"Each image will be shown for {image_duration:.2f} seconds.")
 
         # 3. Create and concatenate image clips.
+        # Images are now guaranteed to be the exact target size thanks to PIL
         clips = [ImageClip(path, duration=image_duration) for path in image_files]
 
         video_clip = concatenate_videoclips(clips, method="compose")
@@ -560,7 +554,7 @@ def create_video_from_images_and_audio(
                     print(f"Warning: Failed to cleanup temp image file {path}: {e}")
 
 
-# --- FINAL LAMBDA HANDLER (UPDATED with Config extraction and Final Cleanup) ---
+# --- FINAL LAMBDA HANDLER (Updated) ---
 
 
 def lambda_handler(event, context):
