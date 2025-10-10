@@ -122,19 +122,19 @@ export default function HighlightsTable() {
       .map(({ image }) =>
         image
           ? {
-              url: normalizeImageUrl(image.url) || "",
-              title: String(image.title ?? ""),
-              caption: String(image.caption ?? ""),
-              s3_key: image.s3_key ?? "",
-            }
+            url: normalizeImageUrl(image.url) || "",
+            title: String(image.title ?? ""),
+            caption: String(image.caption ?? ""),
+            s3_key: image.s3_key ?? "",
+          }
           : null,
       )
       .filter(Boolean) as {
-      url: string;
-      caption: string;
-      title: string;
-      s3_key: string;
-    }[];
+        url: string;
+        caption: string;
+        title: string;
+        s3_key: string;
+      }[];
     // dedupe by url preserving first occurrence
     const map = new Map<string, (typeof initial)[0]>();
     initial.forEach((img) => map.set(img.url, img));
@@ -148,19 +148,19 @@ export default function HighlightsTable() {
       .map(({ image }) =>
         image
           ? {
-              url: normalizeImageUrl(image.url) || "",
-              title: String(image.title ?? ""),
-              caption: String(image.caption ?? ""),
-              s3_key: image.s3_key ?? "",
-            }
+            url: normalizeImageUrl(image.url) || "",
+            title: String(image.title ?? ""),
+            caption: String(image.caption ?? ""),
+            s3_key: image.s3_key ?? "",
+          }
           : null,
       )
       .filter(Boolean) as {
-      url: string;
-      caption: string;
-      title: string;
-      s3_key: string;
-    }[];
+        url: string;
+        caption: string;
+        title: string;
+        s3_key: string;
+      }[];
 
     if (newImgs.length === 0) return;
     setAvailableImages((prev) => {
@@ -180,18 +180,18 @@ export default function HighlightsTable() {
         id === 0
           ? null
           : {
-              order: id,
-              text: text,
-              image: normalizeImageUrl(image?.url) || null,
-              imageCaption: String(image?.caption ?? ""),
-            },
+            order: id,
+            text: text,
+            image: normalizeImageUrl(image?.url) || null,
+            imageCaption: String(image?.caption ?? ""),
+          },
       )
       .filter((r) => !!r) as {
-      order: number;
-      text: string;
-      image: string | null;
-      imageCaption: string;
-    }[],
+        order: number;
+        text: string;
+        image: string | null;
+        imageCaption: string;
+      }[],
   );
 
   const [loading, setLoading] = useState(false);
@@ -525,10 +525,10 @@ export default function HighlightsTable() {
                 >;
                 const bullets = Array.isArray(
                   respObj.summary &&
-                    (respObj.summary as Record<string, unknown>).bullets,
+                  (respObj.summary as Record<string, unknown>).bullets,
                 )
                   ? ((respObj.summary as Record<string, unknown>)
-                      .bullets as Array<Record<string, unknown>>)
+                    .bullets as Array<Record<string, unknown>>)
                   : [];
 
                 if (bullets.length) {
@@ -556,14 +556,14 @@ export default function HighlightsTable() {
                     const image =
                       firstImg && firstImg.image_url
                         ? {
-                            url: String(firstImg.image_url),
-                            s3_key: String(firstImg.image_url).replace(
-                              "s3://bytescribe-image-audio-bucket/",
-                              "",
-                            ),
-                            title: String(firstImg.title ?? ""),
-                            caption: String(firstImg.caption ?? ""),
-                          }
+                          url: String(firstImg.image_url),
+                          s3_key: String(firstImg.image_url).replace(
+                            "s3://bytescribe-image-audio-bucket/",
+                            "",
+                          ),
+                          title: String(firstImg.title ?? ""),
+                          caption: String(firstImg.caption ?? ""),
+                        }
                         : undefined;
                     newHighlights.push({ text, image });
                   });
@@ -598,7 +598,7 @@ export default function HighlightsTable() {
                 setLoading(false);
                 alert(
                   "Crawling job failed: " +
-                    (statusData.error || "Unknown error"),
+                  (statusData.error || "Unknown error"),
                 );
               }
             }
@@ -611,11 +611,11 @@ export default function HighlightsTable() {
         const respObj = data as Record<string, unknown>;
         const bullets = Array.isArray(
           respObj.summary &&
-            (respObj.summary as Record<string, unknown>).bullets,
+          (respObj.summary as Record<string, unknown>).bullets,
         )
           ? ((respObj.summary as Record<string, unknown>).bullets as Array<
-              Record<string, unknown>
-            >)
+            Record<string, unknown>
+          >)
           : [];
 
         if (bullets.length) {
@@ -639,14 +639,14 @@ export default function HighlightsTable() {
             const image =
               firstImg && firstImg.image_url
                 ? {
-                    url: String(firstImg.image_url),
-                    s3_key: String(firstImg.image_url).replace(
-                      "s3://bytescribe-image-audio-bucket/",
-                      "",
-                    ),
-                    title: String(firstImg.title ?? ""),
-                    caption: String(firstImg.caption ?? ""),
-                  }
+                  url: String(firstImg.image_url),
+                  s3_key: String(firstImg.image_url).replace(
+                    "s3://bytescribe-image-audio-bucket/",
+                    "",
+                  ),
+                  title: String(firstImg.title ?? ""),
+                  caption: String(firstImg.caption ?? ""),
+                }
                 : undefined;
             newHighlights.push({ text, image });
           });
@@ -705,7 +705,7 @@ export default function HighlightsTable() {
           >
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                Configuration
+                CONFIGURATION
               </Typography>
             </AccordionSummary>
             <AccordionDetails>
@@ -723,8 +723,8 @@ export default function HighlightsTable() {
                     }}
                   >
                     <Box sx={{ minWidth: 240, flex: "0 0 auto" }}>
-                      <Typography variant="body2" sx={{ mb: 1 }}>
-                        Model:
+                      <Typography variant="body2" sx={{ mb: 1, fontWeight: 700 }}>
+                        AI Model
                       </Typography>
                       <Select
                         fullWidth
@@ -741,8 +741,8 @@ export default function HighlightsTable() {
                     </Box>
 
                     <Box sx={{ width: 200, flex: "0 0 auto" }}>
-                      <Typography variant="body2" sx={{ mb: 1 }}>
-                        Temperature: {temperatureValue}
+                      <Typography variant="body2" sx={{ mb: 1, fontWeight: 700 }}>
+                        Creativity (Temperature): {temperatureValue}
                       </Typography>
                       <Slider
                         min={0}
@@ -759,7 +759,7 @@ export default function HighlightsTable() {
                     </Box>
 
                     <Box sx={{ width: 200, flex: "0 0 auto" }}>
-                      <Typography variant="body2" sx={{ mb: 1 }}>
+                      <Typography variant="body2" sx={{ mb: 1, fontWeight: 700 }}>
                         Number of Highlights: {numHighlights}
                       </Typography>
                       <Slider
@@ -789,8 +789,8 @@ export default function HighlightsTable() {
                     }}
                   >
                     <Box sx={{ minWidth: 150, flex: "1 1 0" }}>
-                      <Typography variant="body2" sx={{ mb: 1 }}>
-                        Number of Words/Highlight
+                      <Typography variant="body2" sx={{ mb: 1, fontWeight: 700 }}>
+                        Max Words per Segment
                       </Typography>
                       <TextField
                         size="small"
@@ -804,7 +804,7 @@ export default function HighlightsTable() {
                     </Box>
 
                     <Box sx={{ maxWidth: 200, flex: "1 1 0" }}>
-                      <Typography variant="body2" sx={{ mb: 1 }}>
+                      <Typography variant="body2" sx={{ mb: 1, fontWeight: 700 }}>
                         Summary Tone
                       </Typography>
                       <Select
@@ -852,12 +852,12 @@ export default function HighlightsTable() {
             >
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                 <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                  Highlights
+                  HIGHLIGHTS
                 </Typography>
               </AccordionSummary>
               <AccordionDetails>
                 <Paper elevation={1} sx={{ padding: 2, mb: 2 }}>
-                  <Typography variant="body2" sx={{ mb: 1 }}>
+                  <Typography variant="body2" sx={{ mb: 1, fontWeight: 700 }}>
                     Title
                   </Typography>
                   <TextField
