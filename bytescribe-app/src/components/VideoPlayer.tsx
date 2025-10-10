@@ -1,9 +1,14 @@
 "use client";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import ReactPlayer from "react-player";
-import { Box, Button, Typography } from "@mui/material";
+import {
+  Box,
+  Backdrop,
+  Button,
+  LinearProgress,
+  Typography,
+} from "@mui/material";
 import { useRouter } from "next/navigation";
-import CircularProgressWithLabel from "./CircularProgressWithLabel";
 
 const mediaUrl = process.env.NEXT_PUBLIC_S3_BUCKET || "";
 const VIDEO_TIMEOUT = 300000;
@@ -146,25 +151,19 @@ export default function VideoPlayer({
               width={vWidth}
               height={vHeight}
             />
-            {loading && (
-              <Box
-                position={"absolute"}
-                top={0}
-                left={0}
-                width={"100%"}
-                height={"100%"}
-                bgcolor={"rgba(0, 0, 0, 0.9)"}
-                color={"whitesmoke"}
-                display={"flex"}
-                flexDirection={"column"}
-                justifyContent={"center"}
-                alignItems={"center"}
-                gap={2}
-              >
-                <CircularProgressWithLabel color="inherit" value={progress} />
-                <Typography>Rendering video...</Typography>
+            <Backdrop
+              open={loading}
+              sx={{ zIndex: (theme) => theme.zIndex.drawer + 2, color: "#fff" }}
+            >
+              <Box sx={{ width: "80%", maxWidth: 800, textAlign: "center" }}>
+                <LinearProgress variant="determinate" value={progress} />
+                <Box display="flex" justifyContent="center" sx={{ py: 1 }}>
+                  <Typography variant="body2">
+                    Rendering video... {Math.round(progress)}%
+                  </Typography>
+                </Box>
               </Box>
-            )}
+            </Backdrop>
           </Box>
         </Box>
         <Box

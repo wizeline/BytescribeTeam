@@ -2,6 +2,7 @@
 import React, { useCallback, useContext, useEffect, useState } from "react";
 import {
   Box,
+  Backdrop,
   Button,
   CircularProgress,
   Container,
@@ -9,12 +10,13 @@ import {
   MenuItem,
   Slider,
   TextField,
+  LinearProgress,
+  Typography,
 } from "@mui/material";
 import VideoPlayer from "@/components/VideoPlayer";
 import { Controller, useForm } from "react-hook-form";
 import { ArticleSummaryContext } from "@/contexts/ArticleSummary";
 import { redirect } from "next/navigation";
-import LinearProgressWithLabel from "@/components/LinearProgressWithLabel";
 
 const apiUrl = process.env.NEXT_PUBLIC_ELEVENLABS_API;
 
@@ -196,17 +198,19 @@ export default function VideoPage() {
 
   return (
     <Container maxWidth="xl">
-      <Box
-        sx={{
-          width: "100%",
-          mb: 3,
-          zIndex: loading ? 2 : -99,
-          opacity: loading ? 1 : 0,
-          ml: loading ? "auto" : "-200vw",
-        }}
+      <Backdrop
+        open={loading}
+        sx={{ zIndex: (theme) => theme.zIndex.drawer + 2, color: "#fff" }}
       >
-        <LinearProgressWithLabel value={progress} />
-      </Box>
+        <Box sx={{ width: "80%", maxWidth: 800 }}>
+          <LinearProgress variant="determinate" value={progress} />
+          <Box display="flex" justifyContent="center" sx={{ py: 1 }}>
+            <Typography variant="body2">
+              Rendering audio... {Math.round(progress)}%
+            </Typography>
+          </Box>
+        </Box>
+      </Backdrop>
       <form
         onSubmit={handleSubmit(onSubmit)}
         style={{
