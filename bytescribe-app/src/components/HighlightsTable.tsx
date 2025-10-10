@@ -822,12 +822,26 @@ export default function HighlightsTable() {
                     fullWidth
                     size="small"
                     value={summary.title || ""}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const newTitle = String(e.target.value || "");
+                      const nextHighlights = Array.isArray(summary.highlights)
+                        ? structuredClone(summary.highlights)
+                        : [];
+                      if (nextHighlights.length === 0) {
+                        nextHighlights.unshift({ text: newTitle });
+                      } else {
+                        const existing = nextHighlights[0] || {};
+                        nextHighlights[0] = {
+                          ...existing,
+                          text: newTitle,
+                        };
+                      }
                       setSummary({
                         ...summary,
-                        title: String(e.target.value || ""),
-                      })
-                    }
+                        title: newTitle,
+                        highlights: nextHighlights,
+                      });
+                    }}
                   />
                 </Paper>
 
