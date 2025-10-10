@@ -1,13 +1,9 @@
 "use client";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import ReactPlayer from "react-player";
-import {
-  Box,
-  Button,
-  CircularProgress,
-  Typography,
-} from "@mui/material";
+import { Box, Button, Typography } from "@mui/material";
 import { useRouter } from "next/navigation";
+import CircularProgressWithLabel from "./CircularProgressWithLabel";
 
 const mediaUrl = process.env.NEXT_PUBLIC_S3_BUCKET || "";
 const VIDEO_TIMEOUT = 300000;
@@ -44,6 +40,7 @@ export default function VideoPlayer({
 
   const [available, setAvailable] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(1);
 
   useEffect(() => {
     if (!!id) {
@@ -68,7 +65,10 @@ export default function VideoPlayer({
   }, [videoUrl]);
 
   const loadVideo = useCallback(async () => {
+    const start = Date.now();
+
     setLoading(true);
+    setProgress(1);
 
     const doesVideoExist = await checkAvailability();
     if (doesVideoExist) {
@@ -77,21 +77,23 @@ export default function VideoPlayer({
     } else {
       let noOfAttempts = 1;
 
-      const start = Date.now();
       const intervalId = setInterval(
         async () => {
           // Check if timeout reached
-          if (Date.now() - start >= VIDEO_TIMEOUT) {
-            console.log("Sorry, timeout.");
+          const progress = Date.now() - start;
+          if (progress >= VIDEO_TIMEOUT) {
+            console.error("Timeout fetching video.");
             clearInterval(intervalId);
             setLoading(false);
             return;
           }
 
           noOfAttempts++;
+          setProgress((100 * progress) / VIDEO_TIMEOUT);
           const availability = await checkAvailability();
           if (availability) {
             clearInterval(intervalId);
+            setProgress(100);
             setAvailable(true);
             setLoading(false);
           }
@@ -156,8 +158,8 @@ export default function VideoPlayer({
                 alignItems={"center"}
                 gap={2}
               >
-                <CircularProgress color="inherit" />
-                <Typography variant="h6">Rendering video...</Typography>
+                <CircularProgressWithLabel color="inherit" value={progress} />
+                <Typography>Rendering video...</Typography>
               </Box>
             )}
           </Box>
@@ -182,14 +184,17 @@ export default function VideoPlayer({
               >
                 Download
               </Button>
-            ) : (!!id && !loading &&
-              <Button
-                variant="contained"
-                disabled={loading}
-                onClick={loadVideo}
-              >
-                Reload
-              </Button>
+            ) : (
+              !!id &&
+              !loading && (
+                <Button
+                  variant="contained"
+                  disabled={loading}
+                  onClick={loadVideo}
+                >
+                  Reload
+                </Button>
+              )
             )}
             <Button variant="outlined" onClick={() => router.push("/home")}>
               Go Home
