@@ -825,7 +825,7 @@ export default function HighlightsTable() {
           </Box>
         </Box>
       </form>
-      {/* <Backdrop
+      <Backdrop
         open={loading}
         sx={palette.mode === "dark" ? { bgcolor: "rgba(0, 0, 0, 0.9)" } : {}}
       >
@@ -833,7 +833,7 @@ export default function HighlightsTable() {
           <CircularProgress color="inherit" />
           <Typography variant="h6">Generating media...</Typography>
         </Box>
-      </Backdrop> */}
+      </Backdrop>
     </>
   );
 }
