@@ -710,102 +710,116 @@ export default function HighlightsTable() {
             </AccordionSummary>
             <AccordionDetails>
               <Paper elevation={1} sx={{ padding: 2 }}>
-                {/* Controls row: force single-line layout. On very small screens allow horizontal scroll */}
-                <Box
-                  display="flex"
-                  gap={2}
-                  alignItems="center"
-                  sx={{
-                    flexWrap: "nowrap",
-                    overflowX: { xs: "auto", sm: "visible" },
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <Box sx={{ minWidth: 240 }}>
-                    <Typography variant="body2" sx={{ mb: 1 }}>
-                      Model:
-                    </Typography>
-                    <Select
-                      fullWidth
-                      value={modelId}
-                      onChange={(e) => setModelId(String(e.target.value))}
-                      size="small"
-                    >
-                      {availableModelOptions.map((opt) => (
-                        <MenuItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
+                {/* Controls split into two rows: first row has 3 controls, second row has 2 controls. */}
+                <Box display="flex" flexDirection="column" gap={2}>
+                  <Box
+                    display="flex"
+                    gap={2}
+                    alignItems="center"
+                    sx={{
+                      flexWrap: "nowrap",
+                      overflowX: { xs: "auto", sm: "visible" },
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <Box sx={{ minWidth: 240, flex: "0 0 auto" }}>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        Model:
+                      </Typography>
+                      <Select
+                        fullWidth
+                        value={modelId}
+                        onChange={(e) => setModelId(String(e.target.value))}
+                        size="small"
+                      >
+                        {availableModelOptions.map((opt) => (
+                          <MenuItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </Box>
+
+                    <Box sx={{ width: 200, flex: "0 0 auto" }}>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        Temperature: {temperatureValue}
+                      </Typography>
+                      <Slider
+                        min={0}
+                        max={1}
+                        step={0.1}
+                        value={temperatureValue}
+                        onChange={(_, v) =>
+                          setTemperatureValue(
+                            Array.isArray(v) ? v[0] : (v as number),
+                          )
+                        }
+                        valueLabelDisplay="auto"
+                      />
+                    </Box>
+
+                    <Box sx={{ width: 200, flex: "0 0 auto" }}>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        Number of Highlights: {numHighlights}
+                      </Typography>
+                      <Slider
+                        min={3}
+                        max={5}
+                        step={1}
+                        value={numHighlights}
+                        onChange={(_, v) =>
+                          setNumHighlights(
+                            Array.isArray(v) ? v[0] : (v as number),
+                          )
+                        }
+                        valueLabelDisplay="auto"
+                      />
+                    </Box>
                   </Box>
 
-                  <Box sx={{ width: 100 }}>
-                    <Typography variant="body2" sx={{ mb: 1 }}>
-                      Temperature: {temperatureValue}
-                    </Typography>
-                    <Slider
-                      min={0}
-                      max={1}
-                      step={0.1}
-                      value={temperatureValue}
-                      onChange={(_, v) =>
-                        setTemperatureValue(
-                          Array.isArray(v) ? v[0] : (v as number),
-                        )
-                      }
-                      valueLabelDisplay="auto"
-                    />
-                  </Box>
+                  <Box
+                    display="flex"
+                    gap={2}
+                    alignItems="center"
+                    sx={{
+                      flexWrap: "nowrap",
+                      overflowX: { xs: "auto", sm: "visible" },
+                      justifyContent: "space-between",
+                      // alignContent: "center",git ad
+                    }}
+                  >
+                    <Box sx={{ minWidth: 150, flex: "1 1 0" }}>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        Number of Words/Highlight
+                      </Typography>
+                      <TextField
+                        size="small"
+                        type="number"
+                        inputProps={{ min: 1, max: 60 }}
+                        value={wordsPerHighlight}
+                        onChange={(e) =>
+                          setWordsPerHighlight(Number(e.target.value || 0))
+                        }
+                      />
+                    </Box>
 
-                  <Box sx={{ width: 100 }}>
-                    <Typography variant="body2" sx={{ mb: 1 }}>
-                      Number of Highlights: {numHighlights}
-                    </Typography>
-                    <Slider
-                      min={3}
-                      max={5}
-                      step={1}
-                      value={numHighlights}
-                      onChange={(_, v) =>
-                        setNumHighlights(
-                          Array.isArray(v) ? v[0] : (v as number),
-                        )
-                      }
-                      valueLabelDisplay="auto"
-                    />
-                  </Box>
-
-                  <Box sx={{ minWidth: 150 }}>
-                    <Typography variant="body2" sx={{ mb: 1 }}>
-                      Number of Words/Highlight
-                    </Typography>
-                    <TextField
-                      size="small"
-                      type="number"
-                      inputProps={{ min: 1, max: 60 }}
-                      value={wordsPerHighlight}
-                      onChange={(e) =>
-                        setWordsPerHighlight(Number(e.target.value || 0))
-                      }
-                    />
-                  </Box>
-
-                  <Box sx={{ minWidth: 150 }}>
-                    <Typography variant="body2" sx={{ mb: 1 }}>
-                      Summary Tone
-                    </Typography>
-                    <Select
-                      fullWidth
-                      value={summaryTone}
-                      onChange={(e) => setSummaryTone(String(e.target.value))}
-                      size="small"
-                    >
-                      {availableToneOptions.map((opt) => (
-                        <MenuItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
+                    <Box sx={{ maxWidth: 200, flex: "1 1 0" }}>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        Summary Tone
+                      </Typography>
+                      <Select
+                        fullWidth
+                        value={summaryTone}
+                        onChange={(e) => setSummaryTone(String(e.target.value))}
+                        size="small"
+                      >
+                        {availableToneOptions.map((opt) => (
+                          <MenuItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </Box>
                   </Box>
                 </Box>
 
