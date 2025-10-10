@@ -19,13 +19,16 @@ CLAUDE_INFERENCE_PROFILE = os.environ.get("CLAUDE_INFERENCE_PROFILE_ARN")
 _CAPTION_MODE = "caption"
 _TITLE_MODE = "title"
 _DEFAULT_PROMPT = """
-    Summarize the following text into exactly 3 main bullet points:
-    - Each bullet point must be no longer than 100 words.
+    Summarize the following text into exactly {num_bullets} main bullet points:
+    - Each bullet point must be no longer than {max_words_per_bullet} words.
     - Focus only on the core ideas, avoid minor details or repetition.
     - Return the output as plain text bullets.
 
     Text:\n
 """
+
+# Module-level default for number of bullets
+DEFAULT_NUM_BULLETS = 3
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -188,8 +191,10 @@ def summarize_page(
     except Exception:
         media_block = ""
 
+    # Resolve num_bullets from text_config only (no explicit arg)
+    num_bullets = (text_config or {}).get('num_bullets', DEFAULT_NUM_BULLETS)
     body = json.dumps({
-        "inputText": _DEFAULT_PROMPT + content_page + media_block,
+        "inputText": _DEFAULT_PROMPT.format(num_bullets=num_bullets, max_words_per_bullet=(text_config or {}).get('max_words_per_bullet', 100)) + content_page + media_block,
         "textGenerationConfig": {
             **_TextGenerationConfig,
             **text_config
@@ -254,7 +259,7 @@ initialize()
 
 def summarize_and_select_images(article_text: str, images_json: list[dict], model_id: str = None, text_config: dict = None):
     """
-    Summarize article into 3 bullets and select up to 3 matching images per bullet.
+    Summarize article into N bullets (configurable via text_config['num_bullets']) and select up to 3 matching images per bullet.
 
     Returns a list of bullet objects (may be empty on failure).
     """
@@ -354,9 +359,12 @@ def summarize_and_select_images(article_text: str, images_json: list[dict], mode
                         # ignore invalid values and keep default
                         pass
 
+        # Resolve num_bullets from text_config only
+        num_bullets = (text_config or {}).get('num_bullets', DEFAULT_NUM_BULLETS)
+
         prompt = f"""You are given a long article and a list of candidate images (each includes title, caption/tags, and an S3 URL).
         Tasks:
-        1) Produce 3 main bullet points summarizing the core ideas of the article (≤{max_words_per_bullet} words each, no overlap).
+        1) Produce {num_bullets} main bullet points summarizing the core ideas of the article (≤{max_words_per_bullet} words each, no overlap).
         2) For each bullet point, select at most three best-matching images from the provided list.
         3) If there are no suitable images, return empty images and do not invent images.
         4) Return a valid JSON object with this schema:
