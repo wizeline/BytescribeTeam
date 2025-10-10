@@ -33,9 +33,9 @@ enum VOICES {
 }
 
 enum RATIO {
-  "16:9" = "1920x1080 - Default",
-  "9:16" = "Vertical for mobile/shorts",
-  "1:1" = "Square for social media",
+  "16:9" = "16:9 - 1920x1080",
+  "9:16" = "9:16 - Vertical for mobile/shorts",
+  "1:1" = "1:1 - Square for social media",
 }
 
 const TRANSITIONS = ["fade", "cut", "slide"];
@@ -229,7 +229,7 @@ export default function VideoPage() {
           id="form-header"
         >
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            Configuration
+            CONFIGURATION
           </Typography>
         </AccordionSummary>
         <AccordionDetails>
@@ -255,7 +255,7 @@ export default function VideoPage() {
                   <>
                     <TextField
                       id="voice-select"
-                      label="Narrator:"
+                      label="Narrator Voice:"
                       select
                       {...field}
                       required
@@ -265,7 +265,9 @@ export default function VideoPage() {
                         fieldState.error &&
                         (fieldState.error.message || "Failed to validate.")
                       }
-                      size="small"
+                      size="small" InputLabelProps={{
+                        style: { fontWeight: 'bold' },
+                      }}
                     >
                       {Object.keys(VOICES).map((value) => (
                         <MenuItem
@@ -300,7 +302,9 @@ export default function VideoPage() {
                         fieldState.error &&
                         (fieldState.error.message || "Failed to validate.")
                       }
-                      size="small"
+                      size="small" InputLabelProps={{
+                        style: { fontWeight: 'bold' },
+                      }}
                     >
                       {Object.keys(RATIO).map((value) => (
                         <MenuItem key={value} value={value}>
@@ -331,7 +335,7 @@ export default function VideoPage() {
                     <TextField
                       id="transition-select"
                       select
-                      label="Transition Effect:"
+                      label="Transition Style:"
                       {...field}
                       required
                       disabled={loading}
@@ -340,7 +344,9 @@ export default function VideoPage() {
                         fieldState.error &&
                         (fieldState.error.message || "Failed to validate.")
                       }
-                      size="small"
+                      size="small" InputLabelProps={{
+                        style: { fontWeight: 'bold' },
+                      }}
                     >
                       {TRANSITIONS.map((style) => (
                         <MenuItem
@@ -365,7 +371,7 @@ export default function VideoPage() {
                 render={({ field }) => (
                   <Box width={"40%"}>
                     <InputLabel>
-                      Subtitle chunk size: <b>{field.value}</b>
+                      <b>Subtitle chunk size: {field.value}</b>
                     </InputLabel>
                     <Box>
                       <Slider
