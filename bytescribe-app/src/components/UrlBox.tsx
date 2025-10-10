@@ -52,11 +52,27 @@ export default function UrlBox(props: BoxProps) {
           }}
         >
           <Typography variant="subtitle1" color="text.secondary" gutterBottom>
-            Introduction
+            <b>INTRODUCTION</b>
           </Typography>
           <Typography variant="body1" sx={{ lineHeight: 1.4 }}>
-            This is the landing page of our Page2Play application. Enter a
-            Confluence link below to begin.
+            <Typography component="span" sx={{ color: 'primary.main', fontWeight: 'bold' }}>
+              Page2Play
+            </Typography>{" "}
+            solution is your revolutionary antidote to organizational information overload.
+            It offers a breakthrough way to transform lengthy, dense documentation into{" "}
+            <Typography component="span" sx={{ color: 'primary.main', fontWeight: 'bold' }}>
+              concise, engaging video summaries
+            </Typography>
+            , ensuring that critical knowledge is always accessible and easily shared across your teams.
+            This approach will{" "}
+            <Typography component="span" sx={{ color: 'primary.main', fontWeight: 'bold' }}>
+              save user time, boost productivity, and accelerate knowledge adoption.
+            </Typography>
+            <br />
+            <br />
+            <Typography component="span" sx={{ color: 'primary.main', fontWeight: 'bold' }}>
+              Enter your Confluence URL below to streamline your team's workflow and create shareable video content today!
+            </Typography>
           </Typography>
         </Paper>
 
@@ -85,7 +101,17 @@ export default function UrlBox(props: BoxProps) {
                       fieldState.error &&
                       (fieldState.error.message || "Failed to validate.")
                     }
-                    sx={{ boxShadow: 2, borderRadius: 1 }}
+                    sx={{
+                      boxShadow: 2,
+                      borderRadius: 1,
+                      '& .MuiOutlinedInput-root': {
+                        '&.Mui-focused fieldset': {
+                          borderColor: 'primary.main',
+                          boxShadow: '0 0 0 2px #1976d2', // Replace #1976d2 with your Primary Blue hex if different
+                        },
+                      },
+                    }}
+                    autoFocus
                     slotProps={{
                       input: {
                         startAdornment: (
@@ -127,6 +153,7 @@ export default function UrlBox(props: BoxProps) {
             <Box sx={{ display: "flex", alignItems: "center" }}>
               <Button
                 variant="contained"
+                color="primary"
                 type="submit"
                 disabled={loading || !isValid}
                 sx={{ height: 48, whiteSpace: "nowrap" }}
