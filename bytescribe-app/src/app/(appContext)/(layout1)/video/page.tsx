@@ -12,7 +12,11 @@ import {
   TextField,
   LinearProgress,
   Typography,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from "@mui/material";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import VideoPlayer from "@/components/VideoPlayer";
 import { Controller, useForm } from "react-hook-form";
 import { ArticleSummaryContext } from "@/contexts/ArticleSummary";
@@ -66,6 +70,8 @@ export default function VideoPage() {
   const [jobStatus, setJobStatus] = useState("");
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [formAccordionExpanded, setFormAccordionExpanded] = useState(true);
+  const [videoAccordionExpanded, setVideoAccordionExpanded] = useState(false);
 
   const fetchJob = useCallback(async () => {
     const payload = {
@@ -211,179 +217,218 @@ export default function VideoPage() {
           </Box>
         </Box>
       </Backdrop>
-      <form
-        onSubmit={handleSubmit(onSubmit)}
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          marginBottom: "4rem",
-        }}
+      <Accordion
+        expanded={formAccordionExpanded}
+        onChange={(_, isExpanded) => setFormAccordionExpanded(isExpanded)}
+        sx={{ mb: 2 }}
       >
-        <Box
-          display={"flex"}
-          flexDirection={"row"}
-          justifyContent={"space-between"}
-          mb={2}
-          sx={{ "& .MuiTextField-root": { width: "40%" } }}
+        <AccordionSummary
+          expandIcon={<ExpandMoreIcon />}
+          aria-controls="form-content"
+          id="form-header"
         >
-          <Controller
-            name="voiceId"
-            control={control}
-            render={({ field, fieldState }) => (
-              <>
-                <TextField
-                  id="voice-select"
-                  label="Narrator:"
-                  select
-                  {...field}
-                  required
-                  disabled={loading}
-                  error={!!fieldState.error}
-                  helperText={
-                    fieldState.error &&
-                    (fieldState.error.message || "Failed to validate.")
-                  }
-                  size="small"
-                >
-                  {Object.keys(VOICES).map((value) => (
-                    <MenuItem
-                      key={value}
-                      value={VOICES[value as keyof typeof VOICES]}
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+            Configuration
+          </Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <form
+            onSubmit={handleSubmit(onSubmit)}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              marginBottom: "4rem",
+            }}
+          >
+            <Box
+              display={"flex"}
+              flexDirection={"row"}
+              justifyContent={"space-between"}
+              mb={2}
+              sx={{ "& .MuiTextField-root": { width: "40%" } }}
+            >
+              <Controller
+                name="voiceId"
+                control={control}
+                render={({ field, fieldState }) => (
+                  <>
+                    <TextField
+                      id="voice-select"
+                      label="Narrator:"
+                      select
+                      {...field}
+                      required
+                      disabled={loading}
+                      error={!!fieldState.error}
+                      helperText={
+                        fieldState.error &&
+                        (fieldState.error.message || "Failed to validate.")
+                      }
+                      size="small"
                     >
-                      {value}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </>
-            )}
-            rules={{
-              required: "Please select a narrator.",
-            }}
-          />
+                      {Object.keys(VOICES).map((value) => (
+                        <MenuItem
+                          key={value}
+                          value={VOICES[value as keyof typeof VOICES]}
+                        >
+                          {value}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  </>
+                )}
+                rules={{
+                  required: "Please select a narrator.",
+                }}
+              />
 
-          <Controller
-            name="ratio"
-            control={control}
-            render={({ field, fieldState }) => (
-              <>
-                <TextField
-                  id="ratio-select"
-                  label="Aspect Ratio:"
-                  select
-                  {...field}
-                  required
-                  disabled={loading}
-                  error={!!fieldState.error}
-                  helperText={
-                    fieldState.error &&
-                    (fieldState.error.message || "Failed to validate.")
-                  }
-                  size="small"
-                >
-                  {Object.keys(RATIO).map((value) => (
-                    <MenuItem key={value} value={value}>
-                      {RATIO[value as keyof typeof RATIO]}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </>
-            )}
-            rules={{
-              required: "Please select a ratio.",
-            }}
-          />
-        </Box>
-
-        <Box
-          display={"flex"}
-          flexDirection={"row"}
-          justifyContent={"space-between"}
-          mb={2}
-          sx={{ "& .MuiFormControl-root": { width: "40%" } }}
-        >
-          <Controller
-            name="transition"
-            control={control}
-            render={({ field, fieldState }) => (
-              <>
-                <TextField
-                  id="transition-select"
-                  select
-                  label="Transition Effect:"
-                  {...field}
-                  required
-                  disabled={loading}
-                  error={!!fieldState.error}
-                  helperText={
-                    fieldState.error &&
-                    (fieldState.error.message || "Failed to validate.")
-                  }
-                  size="small"
-                >
-                  {TRANSITIONS.map((style) => (
-                    <MenuItem
-                      key={style}
-                      value={style}
-                      sx={{ textTransform: "capitalize" }}
+              <Controller
+                name="ratio"
+                control={control}
+                render={({ field, fieldState }) => (
+                  <>
+                    <TextField
+                      id="ratio-select"
+                      label="Aspect Ratio:"
+                      select
+                      {...field}
+                      required
+                      disabled={loading}
+                      error={!!fieldState.error}
+                      helperText={
+                        fieldState.error &&
+                        (fieldState.error.message || "Failed to validate.")
+                      }
+                      size="small"
                     >
-                      {style}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </>
-            )}
-            rules={{
-              required: "Please select a transition style.",
-            }}
-          />
+                      {Object.keys(RATIO).map((value) => (
+                        <MenuItem key={value} value={value}>
+                          {RATIO[value as keyof typeof RATIO]}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  </>
+                )}
+                rules={{
+                  required: "Please select a ratio.",
+                }}
+              />
+            </Box>
 
-          <Controller
-            name="wordChunk"
-            control={control}
-            render={({ field }) => (
-              <Box width={"40%"}>
-                <InputLabel>
-                  Subtitle chunk size: <b>{field.value}</b>
-                </InputLabel>
-                <Box>
-                  <Slider
-                    value={field.value}
-                    valueLabelDisplay="off"
-                    shiftStep={1}
-                    step={1}
-                    marks
-                    min={3}
-                    max={6}
-                    onChange={field.onChange}
-                    disabled={loading}
-                  />
-                </Box>
-              </Box>
-            )}
-            rules={{
-              required: "Please select a size.",
-            }}
-          />
-        </Box>
+            <Box
+              display={"flex"}
+              flexDirection={"row"}
+              justifyContent={"space-between"}
+              mb={2}
+              sx={{ "& .MuiFormControl-root": { width: "40%" } }}
+            >
+              <Controller
+                name="transition"
+                control={control}
+                render={({ field, fieldState }) => (
+                  <>
+                    <TextField
+                      id="transition-select"
+                      select
+                      label="Transition Effect:"
+                      {...field}
+                      required
+                      disabled={loading}
+                      error={!!fieldState.error}
+                      helperText={
+                        fieldState.error &&
+                        (fieldState.error.message || "Failed to validate.")
+                      }
+                      size="small"
+                    >
+                      {TRANSITIONS.map((style) => (
+                        <MenuItem
+                          key={style}
+                          value={style}
+                          sx={{ textTransform: "capitalize" }}
+                        >
+                          {style}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  </>
+                )}
+                rules={{
+                  required: "Please select a transition style.",
+                }}
+              />
 
-        <Button
-          variant="contained"
-          type="submit"
-          disabled={loading}
-          sx={{ alignSelf: "center" }}
+              <Controller
+                name="wordChunk"
+                control={control}
+                render={({ field }) => (
+                  <Box width={"40%"}>
+                    <InputLabel>
+                      Subtitle chunk size: <b>{field.value}</b>
+                    </InputLabel>
+                    <Box>
+                      <Slider
+                        value={field.value}
+                        valueLabelDisplay="off"
+                        shiftStep={1}
+                        step={1}
+                        marks
+                        min={3}
+                        max={6}
+                        onChange={field.onChange}
+                        disabled={loading}
+                      />
+                    </Box>
+                  </Box>
+                )}
+                rules={{
+                  required: "Please select a size.",
+                }}
+              />
+            </Box>
+
+            <Button
+              variant="contained"
+              type="submit"
+              disabled={loading}
+              sx={{ alignSelf: "center" }}
+            >
+              {loading ? (
+                <>
+                  <CircularProgress size={16} color="inherit" sx={{ mr: 1 }} />
+                  Generating…
+                </>
+              ) : (
+                "Generate"
+              )}
+            </Button>
+          </form>
+        </AccordionDetails>
+      </Accordion>
+      <Accordion
+        expanded={videoAccordionExpanded}
+        onChange={(_, isExpanded) => setVideoAccordionExpanded(isExpanded)}
+      >
+        <AccordionSummary
+          expandIcon={<ExpandMoreIcon />}
+          aria-controls="video-content"
+          id="video-header"
         >
-          {loading ? (
-            <>
-              <CircularProgress size={16} color="inherit" sx={{ mr: 1 }} />
-              Generating…
-            </>
-          ) : (
-            "Generate"
-          )}
-        </Button>
-      </form>
-
-      <VideoPlayer id={videoId} initRatio={videoRatio} />
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+            Preview / Download
+          </Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <VideoPlayer
+            id={videoId}
+            initRatio={videoRatio}
+            onLoaded={(available) => {
+              // setVideoAccordionExpanded(true);
+              if (available) setFormAccordionExpanded(false);
+            }}
+          />
+        </AccordionDetails>
+      </Accordion>
     </Container>
   );
 }

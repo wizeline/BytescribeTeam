@@ -18,9 +18,11 @@ const ratioOptions = ["16:9", "9:16", "1:1"];
 export default function VideoPlayer({
   id,
   initRatio,
+  onLoaded,
 }: {
   id: string;
   initRatio?: string;
+  onLoaded?: (available: boolean) => void;
 }) {
   const videoUrl = `${mediaUrl}/output_videos/${id}.mp4`;
   const [ratio, setRatio] = useState(
@@ -124,6 +126,15 @@ export default function VideoPlayer({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [available]);
+
+  // Notify parent when loading finishes (either video available or loading stopped)
+  useEffect(() => {
+    if (!loading && onLoaded) {
+      onLoaded(available);
+    }
+    // We intentionally only listen to loading and available changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, available]);
 
   const router = useRouter();
 
