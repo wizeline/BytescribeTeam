@@ -13,7 +13,7 @@ import {
 import VideoPlayer from "@/components/VideoPlayer";
 import { Controller, useForm } from "react-hook-form";
 import { ArticleSummaryContext } from "@/contexts/ArticleSummary";
-import { useRouter } from "next/navigation";
+import { redirect } from "next/navigation";
 
 const apiUrl = process.env.NEXT_PUBLIC_ELEVENLABS_API;
 
@@ -37,6 +37,11 @@ const JOB_TIMEOUT = 300000;
 const INTERVAL_DELAY = 10000;
 
 export default function VideoPage() {
+  const { summary: { title, highlights } } = useContext(ArticleSummaryContext);
+  if (!title || !highlights?.length) {
+    redirect("/home");
+  }
+
   const [videoId, setVideoId] = useState("");
   const [videoRatio, setVideoRatio] = useState("16:9");
   const [loading, setLoading] = useState(false);
@@ -54,7 +59,6 @@ export default function VideoPage() {
     defaultValues: initForm,
   });
 
-  const { summary: { title, highlights } } = useContext(ArticleSummaryContext);
   const [savedConfig, setSavedConfig] = useState<typeof initForm>();
 
   const [jobId, setJobId] = useState("");
@@ -182,12 +186,6 @@ export default function VideoPage() {
         setPolling(false);
       });
   };
-
-  const router = useRouter();
-
-  if (!title || !highlights?.length) {
-    router.push("home");
-  }
 
   return (
     <Container maxWidth="xl">

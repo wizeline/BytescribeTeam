@@ -93,7 +93,6 @@ export default function VideoPlayer({ id, initRatio }: { id: string, initRatio?:
   return (
     <>
       <Box display={"flex"} flexDirection={"column"} gap={4} marginBottom={5}>
-        {ratio}
         <Box
           display={"flex"}
           flexDirection={"column"}
