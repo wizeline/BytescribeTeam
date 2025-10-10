@@ -196,6 +196,7 @@ export default function HighlightsTable() {
   );
   const [temperatureValue, setTemperatureValue] = useState<number>(0.2);
   const [wordsPerHighlight, setWordsPerHighlight] = useState<number>(60);
+  const [numHighlights, setNumHighlights] = useState<number>(3);
 
   const {
     control,
@@ -442,6 +443,7 @@ export default function HighlightsTable() {
         temperature: Number(temperatureValue),
         maxTokenCount: 2048, // Default token count
         max_words_per_bullet: Number(wordsPerHighlight) || 60,
+        num_bullets: Number(numHighlights) || 3,
       };
 
       const res = await fetch(crawlerApiUrl, {
@@ -711,6 +713,22 @@ export default function HighlightsTable() {
                         setTemperatureValue(
                           Array.isArray(v) ? v[0] : (v as number),
                         )
+                      }
+                      valueLabelDisplay="auto"
+                    />
+                  </Box>
+
+                  <Box sx={{ width: 220 }}>
+                    <Typography variant="body2" sx={{ mb: 1 }}>
+                      Number of Highlights: {numHighlights}
+                    </Typography>
+                    <Slider
+                      min={3}
+                      max={5}
+                      step={1}
+                      value={numHighlights}
+                      onChange={(_, v) =>
+                        setNumHighlights(Array.isArray(v) ? v[0] : (v as number))
                       }
                       valueLabelDisplay="auto"
                     />
