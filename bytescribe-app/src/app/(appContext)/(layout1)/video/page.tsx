@@ -113,7 +113,7 @@ export default function VideoPage() {
       // Check if timeout reached
       const progress = Date.now() - start;
       if (progress >= JOB_TIMEOUT) {
-        console.error("Timeout fetching highlights.");
+        console.error("Timeout fetching job.");
         clearInterval(intervalId);
         setJobStatus("timeout");
         setLoading(false);
@@ -121,7 +121,9 @@ export default function VideoPage() {
         return;
       }
 
-      setProgress((100 * progress) / JOB_TIMEOUT);
+      setProgress(
+        progress > JOB_TIMEOUT / 2 ? 99 : (200 * progress) / JOB_TIMEOUT,
+      );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const job: any = await fetchJob();
 
@@ -194,7 +196,15 @@ export default function VideoPage() {
 
   return (
     <Container maxWidth="xl">
-      <Box sx={{ width: '100%', mb: 3, zIndex: loading ? 2 : -99, opacity: loading ? 1 : 0, ml: loading ? "auto" : "-200vw" }}>
+      <Box
+        sx={{
+          width: "100%",
+          mb: 3,
+          zIndex: loading ? 2 : -99,
+          opacity: loading ? 1 : 0,
+          ml: loading ? "auto" : "-200vw",
+        }}
+      >
         <LinearProgressWithLabel value={progress} />
       </Box>
       <form

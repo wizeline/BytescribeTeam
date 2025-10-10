@@ -55,23 +55,38 @@ export default function UrlBox(props: BoxProps) {
             <b>INTRODUCTION</b>
           </Typography>
           <Typography variant="body1" sx={{ lineHeight: 1.4 }}>
-            <Typography component="span" sx={{ color: 'primary.main', fontWeight: 'bold' }}>
+            <Typography
+              component="span"
+              sx={{ color: "primary.main", fontWeight: "bold" }}
+            >
               Page2Play
             </Typography>{" "}
-            solution is your revolutionary antidote to organizational information overload.
-            It offers a breakthrough way to transform lengthy, dense documentation into{" "}
-            <Typography component="span" sx={{ color: 'primary.main', fontWeight: 'bold' }}>
+            solution is your revolutionary antidote to organizational
+            information overload. It offers a breakthrough way to transform
+            lengthy, dense documentation into{" "}
+            <Typography
+              component="span"
+              sx={{ color: "primary.main", fontWeight: "bold" }}
+            >
               concise, engaging video summaries
             </Typography>
-            , ensuring that critical knowledge is always accessible and easily shared across your teams.
-            This approach will{" "}
-            <Typography component="span" sx={{ color: 'primary.main', fontWeight: 'bold' }}>
-              save user time, boost productivity, and accelerate knowledge adoption.
+            , ensuring that critical knowledge is always accessible and easily
+            shared across your teams. This approach will{" "}
+            <Typography
+              component="span"
+              sx={{ color: "primary.main", fontWeight: "bold" }}
+            >
+              save user time, boost productivity, and accelerate knowledge
+              adoption.
             </Typography>
             <br />
             <br />
-            <Typography component="span" sx={{ color: 'primary.main', fontWeight: 'bold' }}>
-              Enter your Confluence URL below to streamline your team's workflow and create shareable video content today!
+            <Typography
+              component="span"
+              sx={{ color: "primary.main", fontWeight: "bold" }}
+            >
+              Enter your Confluence URL below to streamline your team's workflow
+              and create shareable video content today!
             </Typography>
           </Typography>
         </Paper>
@@ -104,10 +119,10 @@ export default function UrlBox(props: BoxProps) {
                     sx={{
                       boxShadow: 2,
                       borderRadius: 1,
-                      '& .MuiOutlinedInput-root': {
-                        '&.Mui-focused fieldset': {
-                          borderColor: 'primary.main',
-                          boxShadow: '0 0 0 2px #1976d2', // Replace #1976d2 with your Primary Blue hex if different
+                      "& .MuiOutlinedInput-root": {
+                        "&.Mui-focused fieldset": {
+                          borderColor: "primary.main",
+                          boxShadow: "0 0 0 2px #1976d2", // Replace #1976d2 with your Primary Blue hex if different
                         },
                       },
                     }}

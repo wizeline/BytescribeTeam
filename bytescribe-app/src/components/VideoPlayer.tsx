@@ -88,7 +88,11 @@ export default function VideoPlayer({
           }
 
           noOfAttempts++;
-          setProgress((100 * progress) / VIDEO_TIMEOUT);
+          setProgress(
+            progress > VIDEO_TIMEOUT / 2
+              ? 99
+              : (200 * progress) / VIDEO_TIMEOUT,
+          );
           const availability = await checkAvailability();
           if (availability) {
             clearInterval(intervalId);
