@@ -14,6 +14,7 @@ import VideoPlayer from "@/components/VideoPlayer";
 import { Controller, useForm } from "react-hook-form";
 import { ArticleSummaryContext } from "@/contexts/ArticleSummary";
 import { redirect } from "next/navigation";
+import LinearProgressWithLabel from "@/components/LinearProgressWithLabel";
 
 const apiUrl = process.env.NEXT_PUBLIC_ELEVENLABS_API;
 
@@ -62,6 +63,7 @@ export default function VideoPage() {
   const [jobId, setJobId] = useState("");
   const [jobStatus, setJobStatus] = useState("");
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   const fetchJob = useCallback(async () => {
     const payload = {
@@ -104,12 +106,14 @@ export default function VideoPage() {
 
   const fetchHighlights = useCallback(async () => {
     setLoading(true);
+    setProgress(1);
 
     const start = Date.now();
     const intervalId = setInterval(async () => {
       // Check if timeout reached
-      if (Date.now() - start >= JOB_TIMEOUT) {
-        console.error("Timeout.");
+      const progress = Date.now() - start;
+      if (progress >= JOB_TIMEOUT) {
+        console.error("Timeout fetching highlights.");
         clearInterval(intervalId);
         setJobStatus("timeout");
         setLoading(false);
@@ -117,11 +121,13 @@ export default function VideoPage() {
         return;
       }
 
+      setProgress((100 * progress) / JOB_TIMEOUT);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const job: any = await fetchJob();
 
       if (job?.status === "completed") {
         setJobStatus("completed");
+        setProgress(100);
         setLoading(false);
         clearInterval(intervalId);
       }
@@ -146,6 +152,7 @@ export default function VideoPage() {
     }
 
     setLoading(true);
+    setProgress(0);
 
     const payload = {
       ...formData,
@@ -187,6 +194,9 @@ export default function VideoPage() {
 
   return (
     <Container maxWidth="xl">
+      <Box sx={{ width: '100%', mb: 3, zIndex: loading ? 2 : -99, opacity: loading ? 1 : 0, ml: loading ? "auto" : "-200vw" }}>
+        <LinearProgressWithLabel value={progress} />
+      </Box>
       <form
         onSubmit={handleSubmit(onSubmit)}
         style={{

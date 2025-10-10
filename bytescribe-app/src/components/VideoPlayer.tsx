@@ -65,11 +65,10 @@ export default function VideoPlayer({
   }, [videoUrl]);
 
   const loadVideo = useCallback(async () => {
-    const start = Date.now();
-
     setLoading(true);
     setProgress(1);
 
+    const start = Date.now();
     const doesVideoExist = await checkAvailability();
     if (doesVideoExist) {
       setAvailable(true);
