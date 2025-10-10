@@ -639,7 +639,7 @@ def lambda_handler(event, context):
             audio_s3_key = segment.get("audio")
 
             # --- HEADER LOGIC CHECK ---
-            is_header_segment = order == 0
+            is_header_segment = order == 1
             print(f"Is Header Segment: {is_header_segment}")
             # --------------------------
 
