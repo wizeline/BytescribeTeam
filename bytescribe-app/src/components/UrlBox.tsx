@@ -85,8 +85,8 @@ export default function UrlBox(props: BoxProps) {
               component="span"
               sx={{ color: "primary.main", fontWeight: "bold" }}
             >
-              Enter your Confluence URL below to streamline your team's workflow
-              and create shareable video content today!
+              Enter your Confluence URL below to streamline your team&#39;s
+              workflow and create shareable video content today!
             </Typography>
           </Typography>
         </Paper>

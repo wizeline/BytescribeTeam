@@ -419,16 +419,16 @@ export default function HighlightsTable() {
   useEffect(() => {
     let timer: NodeJS.Timeout | null = null;
     if (loading) {
-      setProgress(10);
-      const intervalMs = 200;
-      const totalMs = 5000; // target ~5s to reach 90%
+      // start at 0 now (slower ramp)
+      setProgress(0);
+      const intervalMs = 2000;
+      const totalMs = 30000; // target ~30s to reach 90%
       const steps = Math.max(1, Math.round(totalMs / intervalMs));
-      const perStep = 80 / steps; // from 10 -> 90 is 80 units
+      const perStep = 90 / steps; // from 0 -> 90
       timer = setInterval(() => {
         setProgress((p) => {
           if (p >= 90) return 90;
-          // add a tiny jitter so progress feels natural
-          const jitter = (Math.random() - 0.5) * Math.min(1, perStep * 0.3);
+          const jitter = (Math.random() - 0.5) * Math.min(1, perStep * 0.25);
           const next = p + perStep + jitter;
           return Math.min(next, 90);
         });
