@@ -1,9 +1,14 @@
 "use client";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import ReactPlayer from "react-player";
-import { Box, Button, Typography } from "@mui/material";
+import {
+  Box,
+  Backdrop,
+  Button,
+  LinearProgress,
+  Typography,
+} from "@mui/material";
 import { useRouter } from "next/navigation";
-import CircularProgressWithLabel from "./CircularProgressWithLabel";
 
 const mediaUrl = process.env.NEXT_PUBLIC_S3_BUCKET || "";
 const VIDEO_TIMEOUT = 300000;
@@ -13,9 +18,11 @@ const ratioOptions = ["16:9", "9:16", "1:1"];
 export default function VideoPlayer({
   id,
   initRatio,
+  onLoaded,
 }: {
   id: string;
   initRatio?: string;
+  onLoaded?: (available: boolean) => void;
 }) {
   const videoUrl = `${mediaUrl}/output_videos/${id}.mp4`;
   const [ratio, setRatio] = useState(
@@ -120,6 +127,15 @@ export default function VideoPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [available]);
 
+  // Notify parent when loading finishes (either video available or loading stopped)
+  useEffect(() => {
+    if (!loading && onLoaded) {
+      onLoaded(available);
+    }
+    // We intentionally only listen to loading and available changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, available]);
+
   const router = useRouter();
 
   return (
@@ -146,25 +162,19 @@ export default function VideoPlayer({
               width={vWidth}
               height={vHeight}
             />
-            {loading && (
-              <Box
-                position={"absolute"}
-                top={0}
-                left={0}
-                width={"100%"}
-                height={"100%"}
-                bgcolor={"rgba(0, 0, 0, 0.9)"}
-                color={"whitesmoke"}
-                display={"flex"}
-                flexDirection={"column"}
-                justifyContent={"center"}
-                alignItems={"center"}
-                gap={2}
-              >
-                <CircularProgressWithLabel color="inherit" value={progress} />
-                <Typography>Rendering video...</Typography>
+            <Backdrop
+              open={loading}
+              sx={{ zIndex: (theme) => theme.zIndex.drawer + 2, color: "#fff" }}
+            >
+              <Box sx={{ width: "80%", maxWidth: 800, textAlign: "center" }}>
+                <LinearProgress variant="determinate" value={progress} />
+                <Box display="flex" justifyContent="center" sx={{ py: 1 }}>
+                  <Typography variant="body2">
+                    Rendering video... {Math.round(progress)}%
+                  </Typography>
+                </Box>
               </Box>
-            )}
+            </Backdrop>
           </Box>
         </Box>
         <Box
@@ -172,12 +182,13 @@ export default function VideoPlayer({
           justifyContent={"space-between"}
           alignItems={"center"}
         >
-          <Box display={"flex"} gap={2}>
+          <Box display={"flex"} gap={2} flex={1} justifyContent={"flex-start"}>
             <Button variant="contained" onClick={() => router.push("/adjust")}>
               Go Back
             </Button>
           </Box>
-          <Box display={"flex"} gap={2}>
+
+          <Box display={"flex"} gap={2} flex={1} justifyContent={"center"}>
             {available ? (
               <Button
                 variant="contained"
@@ -199,6 +210,9 @@ export default function VideoPlayer({
                 </Button>
               )
             )}
+          </Box>
+
+          <Box display={"flex"} gap={2} flex={1} justifyContent={"flex-end"}>
             <Button variant="outlined" onClick={() => router.push("/home")}>
               Go Home
             </Button>
