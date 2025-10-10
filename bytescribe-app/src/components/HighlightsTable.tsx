@@ -728,7 +728,9 @@ export default function HighlightsTable() {
                       step={1}
                       value={numHighlights}
                       onChange={(_, v) =>
-                        setNumHighlights(Array.isArray(v) ? v[0] : (v as number))
+                        setNumHighlights(
+                          Array.isArray(v) ? v[0] : (v as number),
+                        )
                       }
                       valueLabelDisplay="auto"
                     />
