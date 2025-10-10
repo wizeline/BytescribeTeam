@@ -4,22 +4,22 @@ import Image from "next/image";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useFieldArray, useForm } from "react-hook-form";
 import {
-  Backdrop,
   Box,
   Button,
-  CircularProgress,
+  Backdrop,
+  LinearProgress,
   FormHelperText,
   MenuItem,
   Paper,
   Tooltip,
   Select,
   Typography,
-  useTheme,
   TextField,
   Slider,
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  Skeleton,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import * as yup from "yup";
@@ -81,8 +81,6 @@ export default function HighlightsTable() {
   // Accordion states for collapsing sections
   const [configExpanded, setConfigExpanded] = useState(true);
   const [highlightsExpanded, setHighlightsExpanded] = useState(true);
-
-  console.log("summary", summary);
 
   const normalizeImageUrl = (url?: string | null) => {
     if (!url) return null;
@@ -189,6 +187,7 @@ export default function HighlightsTable() {
   );
 
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
   // UI controls for generating highlights
   // Default to the 3.5 Sonnet model so it's selected by default
   const [modelId, setModelId] = useState(
@@ -414,6 +413,37 @@ export default function HighlightsTable() {
     ],
     [errors.items, fields, availableImages],
   );
+
+  // Animate a dummy determinate progress while loading to give feedback.
+  // Aim: reach ~90% over ~5 seconds, updating every 200ms with small jitter.
+  useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    if (loading) {
+      // start at 0 now (slower ramp)
+      setProgress(0);
+      const intervalMs = 2000;
+      const totalMs = 30000; // target ~30s to reach 90%
+      const steps = Math.max(1, Math.round(totalMs / intervalMs));
+      const perStep = 90 / steps; // from 0 -> 90
+      timer = setInterval(() => {
+        setProgress((p) => {
+          if (p >= 90) return 90;
+          const jitter = (Math.random() - 0.5) * Math.min(1, perStep * 0.25);
+          const next = p + perStep + jitter;
+          return Math.min(next, 90);
+        });
+      }, intervalMs);
+    } else {
+      // finish animation quickly when loading completes
+      setProgress(100);
+      const t = setTimeout(() => setProgress(0), 400);
+      if (timer) clearInterval(timer);
+      return () => clearTimeout(t);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [loading]);
 
   // Generate highlights action — calls crawler Lambda to get highlights from the stored URL
   const generateHighlights = async () => {
@@ -651,8 +681,6 @@ export default function HighlightsTable() {
     setLoading(false);
   };
 
-  const { palette } = useTheme();
-
   if (!isMounted) return null;
 
   return (
@@ -804,31 +832,61 @@ export default function HighlightsTable() {
                 </Paper>
 
                 <Paper elevation={2}>
-                  <DataGrid
-                    rows={rowData}
-                    getRowId={({ order }) => order}
-                    columns={columns}
-                    getRowHeight={() => "auto"}
-                    initialState={{
-                      pagination: {
-                        paginationModel: {
-                          pageSize: 10,
+                  {loading ? (
+                    <Box sx={{ p: 2 }}>
+                      {/* Show 3 skeleton rows approximating the DataGrid layout */}
+                      {[0, 1, 2, 3].map((i) => (
+                        <Box
+                          key={i}
+                          display="flex"
+                          gap={2}
+                          alignItems="center"
+                          sx={{ mb: 2 }}
+                        >
+                          <Skeleton
+                            variant="rectangular"
+                            width={60}
+                            height={32}
+                          />
+                          <Box sx={{ flex: 1 }}>
+                            <Skeleton variant="text" width="80%" />
+                            <Skeleton variant="text" width="60%" />
+                          </Box>
+                          <Skeleton
+                            variant="rectangular"
+                            width={120}
+                            height={80}
+                          />
+                        </Box>
+                      ))}
+                    </Box>
+                  ) : (
+                    <DataGrid
+                      rows={rowData}
+                      getRowId={({ order }) => order}
+                      columns={columns}
+                      getRowHeight={() => "auto"}
+                      initialState={{
+                        pagination: {
+                          paginationModel: {
+                            pageSize: 10,
+                          },
                         },
-                      },
-                    }}
-                    pageSizeOptions={[10]}
-                    // checkboxSelection
-                    processRowUpdate={(newRow) => {
-                      updateRow(newRow);
-                      return newRow;
-                    }}
-                    sx={{
-                      "& .MuiDataGrid-cell": {
-                        paddingY: 2, // Adds vertical padding to rows
-                      },
-                    }}
-                    loading={loading}
-                  />
+                      }}
+                      pageSizeOptions={[10]}
+                      // checkboxSelection
+                      processRowUpdate={(newRow) => {
+                        updateRow(newRow);
+                        return newRow;
+                      }}
+                      sx={{
+                        "& .MuiDataGrid-cell": {
+                          paddingY: 2, // Adds vertical padding to rows
+                        },
+                      }}
+                      loading={loading}
+                    />
+                  )}
                 </Paper>
               </AccordionDetails>
             </Accordion>
@@ -845,15 +903,23 @@ export default function HighlightsTable() {
           </Box>
         </Box>
       </form>
-      <Backdrop
-        open={loading}
-        sx={palette.mode === "dark" ? { bgcolor: "rgba(0, 0, 0, 0.9)" } : {}}
-      >
-        <Box display={"flex"} gap={2} alignItems={"center"}>
-          <CircularProgress color="inherit" />
-          <Typography variant="h6">Generating media...</Typography>
-        </Box>
-      </Backdrop>
+      {/* Dummy determinate progress bar shown while loading */}
+      {loading && (
+        <Backdrop
+          open={loading}
+          sx={{ zIndex: (theme) => theme.zIndex.drawer + 2, color: "#fff" }}
+        >
+          <Box sx={{ width: "80%", maxWidth: 800 }}>
+            <LinearProgress variant="determinate" value={progress} />
+            <Box display="flex" justifyContent="center" sx={{ py: 1 }}>
+              <Typography variant="body2">
+                Reading your link and generating highlights...{" "}
+                {Math.round(progress)}%
+              </Typography>
+            </Box>
+          </Box>
+        </Backdrop>
+      )}
     </>
   );
 }
