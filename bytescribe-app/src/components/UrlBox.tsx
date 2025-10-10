@@ -12,7 +12,7 @@ import {
 } from "@mui/material";
 import CancelIcon from "@mui/icons-material/Cancel";
 import { useRouter } from "next/navigation";
-import { useContext, useState } from "react";
+import { useContext, useState, useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 
 export default function UrlBox(props: BoxProps) {
@@ -21,6 +21,7 @@ export default function UrlBox(props: BoxProps) {
   const {
     control,
     handleSubmit,
+    reset,
     formState: { isValid },
   } = useForm({
     defaultValues: {
@@ -31,6 +32,21 @@ export default function UrlBox(props: BoxProps) {
 
   const [loading] = useState(false);
   const router = useRouter();
+
+  // Ensure the input is cleared when the component mounts (e.g. on reload or
+  // when navigating back from /video). Also clear the summary.url in context
+  // so the default value remains empty.
+  useEffect(() => {
+    // Reset the form field to empty
+    reset({ urlPath: "" });
+
+    // Clear url in context if setter exists
+    if (setSummary) {
+      setSummary({ ...(summary || {}), url: undefined });
+    }
+    // We intentionally run this only on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onSubmit = async (data: { urlPath: string }) => {
     const { urlPath } = data;
