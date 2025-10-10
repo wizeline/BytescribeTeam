@@ -2,35 +2,54 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import ReactPlayer from "react-player";
 import {
-  Backdrop,
   Box,
   Button,
   CircularProgress,
   Typography,
-  useTheme,
 } from "@mui/material";
 import { useRouter } from "next/navigation";
 
+const mediaUrl = process.env.NEXT_PUBLIC_S3_BUCKET || "";
 const VIDEO_TIMEOUT = 300000;
 const INTERVAL_DELAY = 10000;
-const availableRatios = ["16:9", "9:16", "1:1"];
+const ratioOptions = ["16:9", "9:16", "1:1"];
 
-export default function VideoPlayer({ id, initRatio }: { id: string, initRatio?: string }) {
-  const mediaUrl = process.env.NEXT_PUBLIC_S3_BUCKET || "";
+export default function VideoPlayer({
+  id,
+  initRatio,
+}: {
+  id: string;
+  initRatio?: string;
+}) {
   const videoUrl = `${mediaUrl}/output_videos/${id}.mp4`;
-
-  const [ratio, setRatio] = useState(availableRatios.includes(initRatio || "") ? initRatio : "16:9");
-  const videoWidth = useMemo(() => ratio === "9:16" ? 360 : 640, [ratio]);
-  const videoHeight = useMemo(() => ratio === "16:9" ? 360 : 640, [ratio]);
+  const [ratio, setRatio] = useState(
+    ratioOptions.includes(initRatio || "") ? initRatio : "16:9",
+  );
+  const [vWidth, vHeight] = useMemo(() => {
+    switch (ratio) {
+      case "1:1":
+        return [480, 480];
+      case "9:16":
+        return [360, 640];
+      default:
+        return [640, 360];
+    }
+  }, [ratio]);
 
   useEffect(() => {
-    if (availableRatios.includes(initRatio || "")) {
+    if (ratioOptions.includes(initRatio || "")) {
       setRatio(initRatio!);
-    }}, [initRatio])
+    }
+  }, [initRatio]);
 
   const [available, setAvailable] = useState(false);
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
+
+  useEffect(() => {
+    if (!!id) {
+      setAvailable(false);
+    }
+  }, [id]);
 
   const checkAvailability = useCallback(async () => {
     try {
@@ -83,12 +102,20 @@ export default function VideoPlayer({ id, initRatio }: { id: string, initRatio?:
   }, [checkAvailability]);
 
   useEffect(() => {
-    if (!!id && id !== "not_found" && !available) {
+    if (!!id && !available) {
       loadVideo();
     }
   }, [available, id, loadVideo]);
 
-  const { palette } = useTheme();
+  const [renderTrigger, setRenderTrigger] = useState(0);
+  useEffect(() => {
+    if (available) {
+      setRenderTrigger(renderTrigger + 1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [available]);
+
+  const router = useRouter();
 
   return (
     <>
@@ -100,19 +127,40 @@ export default function VideoPlayer({ id, initRatio }: { id: string, initRatio?:
           alignItems={"center"}
           gap={2}
         >
-          {!available && !loading && (
-            <Typography variant="h5">
+          {!!id && !available && !loading && (
+            <Typography>
               This takes longer than expected. Try reload later.
             </Typography>
           )}
-          <ReactPlayer
-            key={available ? "O" : "I"}
-            src={videoUrl}
-            controls={true}
-            volume={0.25}
-            width={videoWidth}
-            height={videoHeight}
-          />
+          <Box position={"relative"}>
+            <ReactPlayer
+              key={renderTrigger}
+              src={videoUrl}
+              controls={true}
+              volume={0.25}
+              width={vWidth}
+              height={vHeight}
+            />
+            {loading && (
+              <Box
+                position={"absolute"}
+                top={0}
+                left={0}
+                width={"100%"}
+                height={"100%"}
+                bgcolor={"rgba(0, 0, 0, 0.9)"}
+                color={"whitesmoke"}
+                display={"flex"}
+                flexDirection={"column"}
+                justifyContent={"center"}
+                alignItems={"center"}
+                gap={2}
+              >
+                <CircularProgress color="inherit" />
+                <Typography variant="h6">Rendering video...</Typography>
+              </Box>
+            )}
+          </Box>
         </Box>
         <Box
           display={"flex"}
@@ -125,16 +173,16 @@ export default function VideoPlayer({ id, initRatio }: { id: string, initRatio?:
             </Button>
           </Box>
           <Box display={"flex"} gap={2}>
-            {available ?  (
+            {available ? (
               <Button
                 variant="contained"
                 onClick={() => {
-                  window.open(videoUrl, '_blank');
+                  window.open(videoUrl, "_blank");
                 }}
               >
                 Download
               </Button>
-            ) : (
+            ) : (!!id && !loading &&
               <Button
                 variant="contained"
                 disabled={loading}
@@ -149,15 +197,6 @@ export default function VideoPlayer({ id, initRatio }: { id: string, initRatio?:
           </Box>
         </Box>
       </Box>
-      <Backdrop
-        open={loading}
-        sx={palette.mode === "dark" ? { bgcolor: "rgba(0, 0, 0, 0.9)" } : {}}
-      >
-        <Box display={"flex"} gap={2} alignItems={"center"}>
-          <CircularProgress color="inherit" />
-          <Typography variant="h6">Rendering video...</Typography>
-        </Box>
-      </Backdrop>
     </>
   );
 }

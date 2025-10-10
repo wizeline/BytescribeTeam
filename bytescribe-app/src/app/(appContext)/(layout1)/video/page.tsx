@@ -37,14 +37,15 @@ const JOB_TIMEOUT = 300000;
 const INTERVAL_DELAY = 10000;
 
 export default function VideoPage() {
-  const { summary: { title, highlights } } = useContext(ArticleSummaryContext);
+  const {
+    summary: { title, highlights },
+  } = useContext(ArticleSummaryContext);
   if (!title || !highlights?.length) {
     redirect("/home");
   }
 
   const [videoId, setVideoId] = useState("");
   const [videoRatio, setVideoRatio] = useState("16:9");
-  const [loading, setLoading] = useState(false);
 
   const initForm = {
     voiceId: VOICES.Daniel,
@@ -52,10 +53,7 @@ export default function VideoPage() {
     transition: TRANSITIONS[0],
     wordChunk: 3,
   };
-  const {
-    control,
-    handleSubmit,
-  } = useForm({
+  const { control, handleSubmit } = useForm({
     defaultValues: initForm,
   });
 
@@ -63,7 +61,7 @@ export default function VideoPage() {
 
   const [jobId, setJobId] = useState("");
   const [jobStatus, setJobStatus] = useState("");
-  const [polling, setPolling] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const fetchJob = useCallback(async () => {
     const payload = {
@@ -105,7 +103,7 @@ export default function VideoPage() {
   }, [jobId]);
 
   const fetchHighlights = useCallback(async () => {
-    setPolling(true);
+    setLoading(true);
 
     const start = Date.now();
     const intervalId = setInterval(async () => {
@@ -114,7 +112,7 @@ export default function VideoPage() {
         console.error("Timeout.");
         clearInterval(intervalId);
         setJobStatus("timeout");
-        setPolling(false);
+        setLoading(false);
         alert("Recording session is taking too long. We're so sorry for this.");
         return;
       }
@@ -124,7 +122,7 @@ export default function VideoPage() {
 
       if (job?.status === "completed") {
         setJobStatus("completed");
-        setPolling(false);
+        setLoading(false);
         clearInterval(intervalId);
       }
     }, INTERVAL_DELAY);
@@ -134,7 +132,7 @@ export default function VideoPage() {
     if (!!jobId) {
       if (jobStatus === "completed") {
         setVideoId(jobId);
-        setVideoRatio(savedConfig!.ratio)
+        setVideoRatio(savedConfig!.ratio);
       } else {
         fetchHighlights();
       }
@@ -147,14 +145,14 @@ export default function VideoPage() {
       return;
     }
 
-    setPolling(true);
+    setLoading(true);
 
     const payload = {
       ...formData,
       async: true, // Always true
       highlights: [
         { text: title! },
-        ...highlights!.filter(({ text }) => text !== title)
+        ...highlights!.filter(({ text }) => text !== title),
       ],
     };
 
@@ -183,13 +181,20 @@ export default function VideoPage() {
       .catch((err) => {
         console.error(err);
         alert("Oops! Seem like all the staffs are busy. Try again later.");
-        setPolling(false);
+        setLoading(false);
       });
   };
 
   return (
     <Container maxWidth="xl">
-      <form onSubmit={handleSubmit(onSubmit)} style={{ marginBottom: "4rem" }}>
+      <form
+        onSubmit={handleSubmit(onSubmit)}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          marginBottom: "4rem",
+        }}
+      >
         <Box
           display={"flex"}
           flexDirection={"row"}
@@ -208,7 +213,7 @@ export default function VideoPage() {
                   select
                   {...field}
                   required
-                  disabled={loading || polling}
+                  disabled={loading}
                   error={!!fieldState.error}
                   helperText={
                     fieldState.error &&
@@ -243,7 +248,7 @@ export default function VideoPage() {
                   select
                   {...field}
                   required
-                  disabled={loading || polling}
+                  disabled={loading}
                   error={!!fieldState.error}
                   helperText={
                     fieldState.error &&
@@ -283,7 +288,7 @@ export default function VideoPage() {
                   label="Transition Effect:"
                   {...field}
                   required
-                  disabled={loading || polling}
+                  disabled={loading}
                   error={!!fieldState.error}
                   helperText={
                     fieldState.error &&
@@ -313,18 +318,20 @@ export default function VideoPage() {
             control={control}
             render={({ field }) => (
               <Box width={"40%"}>
-                <InputLabel>Subtitle chunk size: </InputLabel>
+                <InputLabel>
+                  Subtitle chunk size: <b>{field.value}</b>
+                </InputLabel>
                 <Box>
                   <Slider
                     value={field.value}
-                    valueLabelDisplay="on"
+                    valueLabelDisplay="off"
                     shiftStep={1}
                     step={1}
                     marks
                     min={3}
                     max={6}
                     onChange={field.onChange}
-                    disabled={loading || polling}
+                    disabled={loading}
                   />
                 </Box>
               </Box>
@@ -338,10 +345,10 @@ export default function VideoPage() {
         <Button
           variant="contained"
           type="submit"
-          disabled={loading || polling}
+          disabled={loading}
           sx={{ alignSelf: "end" }}
         >
-          {loading || polling ? (
+          {loading ? (
             <>
               <CircularProgress size={16} color="inherit" sx={{ mr: 1 }} />
               Generating…
