@@ -171,12 +171,13 @@ export default function VideoPlayer({
           justifyContent={"space-between"}
           alignItems={"center"}
         >
-          <Box display={"flex"} gap={2}>
+          <Box display={"flex"} gap={2} flex={1} justifyContent={"flex-start"}>
             <Button variant="contained" onClick={() => router.push("/adjust")}>
               Go Back
             </Button>
           </Box>
-          <Box display={"flex"} gap={2}>
+
+          <Box display={"flex"} gap={2} flex={1} justifyContent={"center"}>
             {available ? (
               <Button
                 variant="contained"
@@ -198,6 +199,9 @@ export default function VideoPlayer({
                 </Button>
               )
             )}
+          </Box>
+
+          <Box display={"flex"} gap={2} flex={1} justifyContent={"flex-end"}>
             <Button variant="outlined" onClick={() => router.push("/home")}>
               Go Home
             </Button>

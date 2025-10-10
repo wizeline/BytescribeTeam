@@ -66,6 +66,14 @@ const availableModelOptions = [
   },
 ];
 
+const availableToneOptions = [
+  { value: "formal", label: "Formal" },
+  { value: "casual", label: "Casual" },
+  { value: "technical", label: "Technical" },
+  { value: "marketing", label: "Marketing" },
+  { value: "humorous", label: "Humorous" },
+];
+
 export default function HighlightsTable() {
   const { summary, setSummary } = useContext(ArticleSummaryContext);
   const { highlights } = summary;
@@ -193,6 +201,8 @@ export default function HighlightsTable() {
   const [modelId, setModelId] = useState(
     "anthropic.claude-3-5-sonnet-20240620-v1:0",
   );
+  // Tone selection for generated summary
+  const [summaryTone, setSummaryTone] = useState<string>("formal");
   const [temperatureValue, setTemperatureValue] = useState<number>(0.2);
   const [wordsPerHighlight, setWordsPerHighlight] = useState<number>(60);
   const [numHighlights, setNumHighlights] = useState<number>(3);
@@ -471,6 +481,7 @@ export default function HighlightsTable() {
       if (modelId) payload.model_id = modelId;
       payload.text_config = {
         temperature: Number(temperatureValue),
+        tone: summaryTone,
         maxTokenCount: 2048, // Default token count
         max_words_per_bullet: Number(wordsPerHighlight) || 60,
         num_bullets: Number(numHighlights) || 3,
@@ -728,7 +739,7 @@ export default function HighlightsTable() {
                     </Select>
                   </Box>
 
-                  <Box sx={{ width: 220 }}>
+                  <Box sx={{ width: 100 }}>
                     <Typography variant="body2" sx={{ mb: 1 }}>
                       Temperature: {temperatureValue}
                     </Typography>
@@ -746,7 +757,7 @@ export default function HighlightsTable() {
                     />
                   </Box>
 
-                  <Box sx={{ width: 220 }}>
+                  <Box sx={{ width: 100 }}>
                     <Typography variant="body2" sx={{ mb: 1 }}>
                       Number of Highlights: {numHighlights}
                     </Typography>
@@ -764,23 +775,40 @@ export default function HighlightsTable() {
                     />
                   </Box>
 
-                  <Box sx={{ minWidth: 160 }}>
+                  <Box sx={{ minWidth: 150 }}>
                     <Typography variant="body2" sx={{ mb: 1 }}>
                       Number of Words/Highlight
                     </Typography>
                     <TextField
                       size="small"
                       type="number"
-                      inputProps={{ min: 1 }}
+                      inputProps={{ min: 1, max: 60 }}
                       value={wordsPerHighlight}
                       onChange={(e) =>
                         setWordsPerHighlight(Number(e.target.value || 0))
                       }
                     />
                   </Box>
+
+                  <Box sx={{ minWidth: 150 }}>
+                    <Typography variant="body2" sx={{ mb: 1 }}>
+                      Summary Tone
+                    </Typography>
+                    <Select
+                      fullWidth
+                      value={summaryTone}
+                      onChange={(e) => setSummaryTone(String(e.target.value))}
+                      size="small"
+                    >
+                      {availableToneOptions.map((opt) => (
+                        <MenuItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </Box>
                 </Box>
 
-                {/* Generate button placed on its own full-width row, centered for clarity */}
                 <Box
                   sx={{
                     display: "flex",

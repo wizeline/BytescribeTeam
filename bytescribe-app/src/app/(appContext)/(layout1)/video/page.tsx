@@ -370,7 +370,7 @@ export default function VideoPage() {
           variant="contained"
           type="submit"
           disabled={loading}
-          sx={{ alignSelf: "end" }}
+          sx={{ alignSelf: "center" }}
         >
           {loading ? (
             <>
