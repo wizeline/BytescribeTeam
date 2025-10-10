@@ -38,6 +38,7 @@ def list_foundation_models():
     """
 
     try:
+        bedrock_client = boto3.client(service_name="bedrock")
         response = bedrock_client.list_foundation_models()
         fm_models = response["modelSummaries"]
         logger.info("Got %s foundation models.", len(fm_models))
@@ -94,7 +95,11 @@ def summarize_page(
     return {"result": results[0] if results else {}}
 
 
-def summarize_and_select_images(article_text: str, images_json: list[dict]):
+def summarize_and_select_images(
+    article_text: str,
+    images_json: list[dict],
+    config={"ton": "casual"}
+):
     """
     - This function summarize the page basing on the `article_text` into 3 main bullets,
     then select at most 3 images from the `image_json` that is suitable for each bullet.
@@ -117,7 +122,12 @@ def summarize_and_select_images(article_text: str, images_json: list[dict]):
                 }
             ]
     """
+    # tone could be "formal", "casual", "technical", "marketing", "humorous"
+    tone = config.get("ton", "neutral, concise, professional")
     prompt = f"""You are given a long article and a list of candidate images (each includes title, caption/tags, and an S3 URL).
+        You must adopt the requested writing tone throughout: "{tone}". Adjust wording to match this tone while keeping facts unchanged.
+        Do not mention the tone explicitly in the output.
+
         Tasks:
         1) Produce 3 main bullet points summarizing the core ideas of the article (≤60 words each, no overlap).
         2) For each bullet point, select at most three best-matching images from the provided list.
