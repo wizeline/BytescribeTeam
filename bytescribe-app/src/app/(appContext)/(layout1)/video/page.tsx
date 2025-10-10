@@ -139,6 +139,7 @@ export default function VideoPage() {
         setJobStatus("completed");
         setProgress(100);
         setLoading(false);
+        setVideoAccordionExpanded(true);
         clearInterval(intervalId);
       }
     }, INTERVAL_DELAY);
