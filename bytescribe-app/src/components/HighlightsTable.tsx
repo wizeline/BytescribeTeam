@@ -11,6 +11,7 @@ import {
   FormHelperText,
   MenuItem,
   Paper,
+  Tooltip,
   Select,
   Typography,
   useTheme,
@@ -106,24 +107,63 @@ export default function HighlightsTable() {
     return url;
   };
 
-  const imageList = (highlights || [])
-    .map(({ image }) =>
-      image
-        ? {
-            ...image,
-            url: normalizeImageUrl(image.url) || "",
-            title: String(image.title ?? ""),
-            caption: String(image.caption ?? ""),
-            s3_key: image.s3_key ?? "",
-          }
-        : null,
-    )
-    .filter((image) => !!image) as {
-    url: string;
-    caption: string;
-    title: string;
-    s3_key: string;
-  }[];
+  // Maintain a persistent list of available images that merges new images from
+  // `highlights` but does not remove previously-seen images. This prevents a
+  // scenario where changing one row's image removes that image from the
+  // selection list for other rows.
+  const [availableImages, setAvailableImages] = useState(() => {
+    const initial = (highlights || [])
+      .map(({ image }) =>
+        image
+          ? {
+              url: normalizeImageUrl(image.url) || "",
+              title: String(image.title ?? ""),
+              caption: String(image.caption ?? ""),
+              s3_key: image.s3_key ?? "",
+            }
+          : null,
+      )
+      .filter(Boolean) as {
+      url: string;
+      caption: string;
+      title: string;
+      s3_key: string;
+    }[];
+    // dedupe by url preserving first occurrence
+    const map = new Map<string, (typeof initial)[0]>();
+    initial.forEach((img) => map.set(img.url, img));
+    return Array.from(map.values());
+  });
+
+  // Merge new images from highlights whenever highlights change, but keep any
+  // previously seen images in `availableImages`.
+  useEffect(() => {
+    const newImgs = (highlights || [])
+      .map(({ image }) =>
+        image
+          ? {
+              url: normalizeImageUrl(image.url) || "",
+              title: String(image.title ?? ""),
+              caption: String(image.caption ?? ""),
+              s3_key: image.s3_key ?? "",
+            }
+          : null,
+      )
+      .filter(Boolean) as {
+      url: string;
+      caption: string;
+      title: string;
+      s3_key: string;
+    }[];
+
+    if (newImgs.length === 0) return;
+    setAvailableImages((prev) => {
+      const map = new Map<string, (typeof newImgs)[0]>();
+      prev.forEach((p) => map.set(p.url, p));
+      newImgs.forEach((n) => map.set(n.url, n));
+      return Array.from(map.values());
+    });
+  }, [highlights]);
 
   // The first item in `highlights` is the page title (index 0).
   // Keep DataGrid rows to only the actual highlights (index > 0),
@@ -184,7 +224,7 @@ export default function HighlightsTable() {
 
     const newHighlights = structuredClone(highlights!);
     const updateHighlightImage = newRowValue.image
-      ? imageList.find(({ url }) => newRowValue.image === url)
+      ? availableImages.find(({ url }) => newRowValue.image === url)
       : undefined;
     const updateHighlight = updateHighlightImage
       ? { text: newRowValue.text, image: updateHighlightImage }
@@ -249,38 +289,129 @@ export default function HighlightsTable() {
             priority
           />
         ),
-        renderEditCell: ({ id, value, api, field }) => (
-          <Select
-            labelId="demo-simple-select-label"
-            id="demo-simple-select"
-            value={value || placeHolderImg}
-            label=""
-            fullWidth
-            onChange={(event) => {
-              // Update the cell value in the DataGrid's state
-              api.setEditCellValue({
-                id: id,
-                field: field,
-                value: event.target.value,
-              });
-            }}
-          >
-            {imageList.map(({ url, caption }, id) => (
-              <MenuItem key={`${url}-${id}`} value={url}>
-                <Image
-                  src={url}
-                  alt={caption || "image"}
-                  width={120}
-                  height={80}
-                  priority
-                />
-              </MenuItem>
-            ))}
-          </Select>
-        ),
+        renderEditCell: ({ id, value, api, field }) => {
+          // Show all images as clickable thumbnails inside the edit cell.
+          // Clicking a thumbnail immediately sets the cell value and commits the change.
+          return (
+            <Box
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 1,
+                alignItems: "flex-start",
+                overflowY: "auto",
+                maxHeight: 300,
+                px: 1,
+                py: 0.5,
+                width: "100%",
+              }}
+            >
+              {availableImages.map(
+                (
+                  { url, caption }: { url: string; caption: string },
+                  idx: number,
+                ) => {
+                  const selected = url === value;
+                  return (
+                    <Box
+                      key={`${url}-${idx}`}
+                      onClick={() => {
+                        // Update the cell value and stop edit mode so the change is committed
+                        const apiWithEdit = api as unknown as {
+                          stopCellEditMode?: (params: {
+                            id: unknown;
+                            field: string;
+                          }) => void;
+                          setCellMode?: (
+                            id: unknown,
+                            field: string,
+                            mode: string,
+                          ) => void;
+                        };
+                        try {
+                          api.setEditCellValue({ id, field, value: url });
+                          if (
+                            typeof apiWithEdit.stopCellEditMode === "function"
+                          ) {
+                            apiWithEdit.stopCellEditMode({ id, field });
+                          }
+                        } catch {
+                          if (typeof apiWithEdit.setCellMode === "function")
+                            apiWithEdit.setCellMode(id, field, "view");
+                        }
+                      }}
+                      sx={{
+                        position: "relative",
+                        cursor: "pointer",
+                        borderRadius: 1,
+                        border: (theme) =>
+                          selected
+                            ? `2px solid ${theme.palette.primary.main}`
+                            : "2px solid transparent",
+                        boxShadow: selected ? 2 : 0,
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1,
+                        px: 1,
+                        py: 0.5,
+                        backgroundColor: (theme) =>
+                          selected
+                            ? theme.palette.action.selected
+                            : "transparent",
+                      }}
+                    >
+                      <Tooltip title={caption || ""} arrow>
+                        <Box sx={{ display: "flex", alignItems: "center" }}>
+                          <Image
+                            src={url}
+                            alt={caption || "image"}
+                            width={120}
+                            height={80}
+                            priority
+                          />
+                        </Box>
+                      </Tooltip>
+                      {selected && (
+                        <Box
+                          sx={{
+                            position: "absolute",
+                            top: 6,
+                            right: 6,
+                            backgroundColor: "rgba(0,0,0,0.5)",
+                            borderRadius: "50%",
+                            width: 28,
+                            height: 28,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="white"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        </Box>
+                      )}
+                    </Box>
+                  );
+                },
+              )}
+            </Box>
+          );
+        },
       },
     ],
-    [errors.items, fields, imageList],
+    [errors.items, fields, availableImages],
   );
 
   // Generate highlights action — calls crawler Lambda to get highlights from the stored URL
@@ -694,7 +825,7 @@ export default function HighlightsTable() {
           </Box>
         </Box>
       </form>
-      <Backdrop
+      {/* <Backdrop
         open={loading}
         sx={palette.mode === "dark" ? { bgcolor: "rgba(0, 0, 0, 0.9)" } : {}}
       >
@@ -702,7 +833,7 @@ export default function HighlightsTable() {
           <CircularProgress color="inherit" />
           <Typography variant="h6">Generating media...</Typography>
         </Box>
-      </Backdrop>
+      </Backdrop> */}
     </>
   );
 }
