@@ -422,7 +422,7 @@ export default function VideoPage() {
           id="video-header"
         >
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            Preview / Download
+            PREVIEW / DOWNLOAD
           </Typography>
         </AccordionSummary>
         <AccordionDetails>
