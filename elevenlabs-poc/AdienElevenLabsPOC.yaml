@@ -14,7 +14,7 @@ Resources:
       CodeUri: .
       Description: ''
       MemorySize: 128
-      Timeout: 20
+      Timeout: 900
       Handler: lambda_function.lambda_handler
       Runtime: python3.11
       Architectures:
@@ -23,10 +23,10 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          DESTINATION_BUCKET: bytescribe-image-audio-bucket
-          ELEVENLABS_API_KEY: sk_e1cb732d732a91de5627e25c6e30f79953884e306c270324
+          DESTINATION_BUCKET: adien-apac-practice-bucket
+          ELEVENLABS_API_KEY: sk_76855fa1985fcc7d08d230a8c5962ecba9e249e51ae7c144
           ELEVENLABS_MODEL_ID: eleven_v3
-          ELEVENLABS_VOICE_ID: Xb7hH8MSUJpSbSDYk0k2
+          ELEVENLABS_VOICE_ID: XrExE9yKIg1WjnnlVkGX
       EventInvokeConfig:
         MaximumEventAgeInSeconds: 21600
         MaximumRetryAttempts: 2
@@ -35,14 +35,27 @@ Resources:
         - Statement:
             - Effect: Allow
               Action:
-                - logs:PutLogEvents
                 - logs:CreateLogGroup
+              Resource: arn:aws:logs:ap-southeast-2:922523344160:*
+            - Effect: Allow
+              Action:
                 - logs:CreateLogStream
-              Resource: arn:aws:logs:*:*:*
+                - logs:PutLogEvents
+              Resource:
+                - >-
+                  arn:aws:logs:ap-southeast-2:922523344160:log-group:/aws/lambda/AdienElevenLabsPOC:*
             - Effect: Allow
               Action:
                 - s3:PutObject
-              Resource: arn:aws:s3:::*/*
+                - s3:GetObject
+              Resource:
+                - arn:aws:s3:::*/*
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - >-
+                  arn:aws:lambda:ap-southeast-2:922523344160:function:AdienElevenLabsPOC
       RecursiveLoop: Terminate
       SnapStart:
         ApplyOn: None
@@ -50,7 +63,17 @@ Resources:
         Api1:
           Type: Api
           Properties:
-            Path: /
+            Path: /AdienElevenLabsPOC
+            Method: POST
+        Api2:
+          Type: Api
+          Properties:
+            Path: /AdienElevenLabsPOC
+            Method: POST
+        Api3:
+          Type: Api
+          Properties:
+            Path: /AdienElevenLabsPOC
             Method: POST
       RuntimeManagementConfig:
         UpdateRuntimeOn: Auto

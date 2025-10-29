@@ -1,0 +1,39 @@
+{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Effect": "Allow",
+			"Action": "logs:CreateLogGroup",
+			"Resource": "arn:aws:logs:ap-southeast-2:922523344160:*"
+		},
+		{
+			"Effect": "Allow",
+			"Action": [
+				"logs:CreateLogStream",
+				"logs:PutLogEvents"
+			],
+			"Resource": [
+				"arn:aws:logs:ap-southeast-2:922523344160:log-group:/aws/lambda/AdienElevenLabsPOC:*"
+			]
+		},
+		{
+			"Effect": "Allow",
+			"Action": [
+				"s3:PutObject",
+				"s3:GetObject"
+			],
+			"Resource": [
+				"arn:aws:s3:::*/*"
+			]
+		},
+		{
+			"Effect": "Allow",
+			"Action": [
+				"lambda:InvokeFunction"
+			],
+			"Resource": [
+				"arn:aws:lambda:ap-southeast-2:922523344160:function:AdienElevenLabsPOC"
+			]
+		}
+	]
+}
