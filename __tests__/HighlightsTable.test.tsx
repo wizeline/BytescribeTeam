@@ -3,12 +3,12 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import HighlightsTable from '../HighlightsTable';
 
-const mockHighlights = [
-  { id: 1, text: 'Test highlight 1', timestamp: '2023-01-01' },
-  { id: 2, text: 'Test highlight 2', timestamp: '2023-01-02' }
-];
-
 describe('HighlightsTable', () => {
+  const mockHighlights = [
+    { id: 1, text: 'Test highlight 1', timestamp: '2023-01-01' },
+    { id: 2, text: 'Test highlight 2', timestamp: '2023-01-02' }
+  ];
+
   beforeEach(() => {
     jest.clearAllMocks();
   });

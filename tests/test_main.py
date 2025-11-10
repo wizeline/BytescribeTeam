@@ -2,28 +2,24 @@ import pytest
 from fastapi.testclient import TestClient
 from api.app.main import app
 
-client = TestClient(app)
+@pytest.fixture
+def client():
+    return TestClient(app)
 
-def test_read_root():
+def test_read_root(client):
     response = client.get('/')
     assert response.status_code == 200
     assert response.json() == {'message': 'Welcome to the API'}
 
-def test_health_check():
+def test_health_check(client):
     response = client.get('/health')
     assert response.status_code == 200
     assert response.json() == {'status': 'healthy'}
 
-def test_cors_headers():
+def test_cors_headers(client):
     response = client.options('/')
     assert response.headers['access-control-allow-origin'] == '*'
 
-@pytest.mark.asyncio
-async def test_startup_event():
-    # Test startup event handlers
-    pass
-
-@pytest.mark.asyncio
-async def test_shutdown_event():
-    # Test shutdown event handlers
-    pass
+def test_invalid_route(client):
+    response = client.get('/invalid')
+    assert response.status_code == 404
